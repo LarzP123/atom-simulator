@@ -1,6 +1,11 @@
+{-# LANGUAGE FlexibleContexts #-}
 import AtomSimulator.Units
 import AtomSimulator.QuantumSolver
-import Data.Metrology
+import Data.Metrology.Poly
+import Data.List (sortBy)
+import Data.Ord (comparing)
+import GHC.Natural (Natural)
+import Text.Printf
 
 {-| Currently this just returns output for a solution for a quantum well as a demonstration-}
 main :: IO ()
@@ -8,6 +13,16 @@ main = do
   let n     = 9
       s     = 0.1 % Nanometer
       zeroFunc _ _ _ = 0 % ElectronVolt
-      well3D = createPotentialGrid zeroFunc n s
-  putStrLn "\n3D infinite cubic well (10x10x10 grid, 0.1 nm spacing), lowest 4 levels:"
-  mapM_ (putStrLn . ("  E = " ++) . show . fst) (take 4 (solve3D well3D))
+      grid    = createPotentialGrid zeroFunc n s
+
+  putStrLn "Dense solver (solve3D)"
+  let 
+    denseEnergies :: [Energy]
+    denseEnergies = take 5 (map fst (solveAllOrbitals grid))
+  mapM_ (\e -> printf "%.5f eV\n" (e # ElectronVolt)) denseEnergies
+
+  putStrLn "\nSparse Lanczos solver"
+  let 
+    sparseEnergies :: Energy
+    sparseEnergies = fst (solveLowestOribtal grid)
+  (\e -> printf "%.5f eV\n" (e # ElectronVolt)) sparseEnergies
