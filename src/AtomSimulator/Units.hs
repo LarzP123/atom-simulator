@@ -12,10 +12,12 @@ import Data.Metrology.Show ()
 declareMonoUnit "Nanometer" (Just "nm")
 declareDerivedUnit "MicroMeter" [t| Nanometer |] 1e3 (Just "um")
 declareDerivedUnit "Meter" [t| Nanometer |] 1e9 (Just "m")
+declareDerivedUnit "Bohr" [t| Nanometer |] 0.0529177249 (Just "m")
 
 declareMonoUnit "ElectronVolt" (Just "eV")
 declareDerivedUnit "Joule" [t| ElectronVolt |] 6.241509074e18 (Just "J")
 declareDerivedUnit "MegaElectronVolt" [t| ElectronVolt |] 1e6 (Just "MeV")
+declareDerivedUnit "Hartree" [t| ElectronVolt |] 27.2114 (Just "E h")
 
 declareMonoUnit "AtomicUnit" (Just "Au")
 declareDerivedUnit "Kilogram" [t| AtomicUnit |] 6.02214076e26 (Just "kg")
@@ -43,7 +45,10 @@ type Permittivity = MkQu_D (ElementaryCharge :* ElementaryCharge :/ ElectronVolt
 type EnergyDist = MkQu_D (ElectronVolt :* Nanometer)
 -- | Length to negative one power
 type InverseLength = Length %^ MOne
-
+-- | This is a constant for the slope of a force that scales linearly with distance. Like the force on a spring
+type SpringConstant = MkQu_D (ElectronVolt :/ Nanometer :/ Nanometer)
+-- | A distance times a distances, or an area
+type DistSq = MkQu_D (Nanometer :* Nanometer)
 
 -- | A meter per second is a standard SI unit for velocity. This value is that number squared
 meterPerSecondSq :: SpeedSq
@@ -62,3 +67,11 @@ protonMass = (938.272 % MegaElectronVolt) |/| lightSpeedSq
 -- | Permittivity of free space
 vacuumPermittivity :: Permittivity
 vacuumPermittivity = (55.26349406 % ElementaryCharge) |*| (1 % ElementaryCharge) |/| (1 % ElectronVolt) |/| (1 % MicroMeter)
+
+-- | The charge of an electron
+electronCharge :: Charge
+electronCharge = (-1) % ElementaryCharge
+-- | The charge of a proton
+protonCharge :: Charge
+protonCharge = 1 % ElementaryCharge
+

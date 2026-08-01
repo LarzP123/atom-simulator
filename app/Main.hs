@@ -10,19 +10,16 @@ import Text.Printf
 {-| Currently this just returns output for a solution for a quantum well as a demonstration-}
 main :: IO ()
 main = do
-  let n     = 9
-      s     = 0.1 % Nanometer
-      zeroFunc _ _ _ = 0 % ElectronVolt
-      grid    = createPotentialGrid zeroFunc n s
-
-  putStrLn "Dense solver (solve3D)"
   let 
-    denseEnergies :: [Energy]
-    denseEnergies = take 5 (map fst (solveAllOrbitals grid))
-  mapM_ (\e -> printf "%.5f eV\n" (e # ElectronVolt)) denseEnergies
+    k :: SpringConstant
+    k = (0.25 % Hartree) |/| (1 % Bohr) |/| (1 % Bohr)
+    grid = createPotentialGrid (harmonicPotential k) 12 (0.03 % Nanometer)
 
-  putStrLn "\nSparse Lanczos solver"
-  let 
-    sparseEnergies :: Energy
-    sparseEnergies = fst (solveLowestOribtal grid)
-  (\e -> printf "%.5f eV\n" (e # ElectronVolt)) sparseEnergies
+  putStrLn "Single-particle harmonic spectrum (no e-e interaction)"
+  putStrLn "Expect energies 1x0.75, 3x1.25, 6x1.75"
+  mapM_ (putStrLn . showInHartree) (take 10 (solveAllOrbitals grid))
+
+  putStrLn "\nHooke's atom, 2 interacting electrons (Hartree-Fock)"
+  let (systemEnergy, solutions) = solveInteractingElectronsHF 2 5 grid
+  mapM_ (putStrLn . showInHartree) solutions
+  printf "Total: %.4f Hartree  (must be >= 2 Hartree -- variational bound)\n" (systemEnergy # Hartree)

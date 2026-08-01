@@ -35,7 +35,14 @@ manhattan (i1,j1,k1) (i2,j2,k2) = (i1|--|i2) + (j1|--|j2) + (k1|--|k2)
 
 {-| A grid representing physical space. Contains a length saying the spacing between each item in the grid
   Also contains a 3d grid/triple array containing all of the points in the grid with arbitrary units.-}
-data PhysicalGrid a = PhysicalGrid { spacing :: Length, samples :: Grid3D a } deriving (Show)
+data PhysicalGrid a = PhysicalGrid { spacing :: Length, samples :: Grid3D a } deriving (Show, Eq)
+
+-- | Like createGridFromFunc but takes a 0 centered function and makes it centered at middle of grid we are creating
+createGridFromFuncShifted :: (Length -> Length -> Length -> a) -> Natural -> Length -> PhysicalGrid a
+createGridFromFuncShifted f n s = createGridFromFunc shifted n s
+  where
+    offset = (fromIntegral n / 2) |*| s
+    shifted x y z = f (x |-| offset) (y |-| offset) (z |-| offset)
 
 {-| Given 1. a function that takes a 3d point in space and outputs a value,
 2. a integer specifying the spacing between each point in a grid,
@@ -80,29 +87,44 @@ startingVector bnd =
   let unNormalized = listArray ((0,0,0),bnd) [ 0.5 + 0.3 * sin (fromIntegral i) | i <- [1 .. rangeSize ((0,0,0),bnd)] ]
   in amap (/ normA unNormalized) unNormalized 
 
-go :: Int -> Vec -> Vec -> Double -> [Vec] -> (Vec -> Vec) -> ([Double], [Double], [Vec])
-go 0 _ _ _ _ _ = ([], [], [])
-go j q qPrev betaPrev qsRev matvec =
-  let w0    = matvec q
-      alpha = dotA w0 q
-      w1    = w0 `subA` scaleA alpha q `subA` scaleA betaPrev qPrev
-      w2    = foldl' (\acc q -> acc `subA` scaleA (dotA acc q) q) w1 (q : qsRev)
-      beta  = normA w2
-      qNext = if beta < 1e-10 then zeroVec q else scaleA (1 / beta) w2
-      (alphas, betas, qs) = go (j - 1) qNext q beta (q : qsRev) matvec
-  in (alpha : alphas, beta : betas, q : qs)
-
+-- | Given an existing Vector, creates a Zero vector matching the same samples
 zeroVec :: Vec -> UArray Idx3 Double
 zeroVec = amap (const 0)
 
--- | Lowest eigenpair (ground state) via Lanczos.
-lanczosLowest :: forall dim lcsu unit. (ValidDLU dim lcsu unit)
-  => (Vec -> Vec, unit) -> Idx3 -> (Qu dim lcsu Double, Vec)
-lanczosLowest (matvec, unit) bnd =
-  let
-    (alphas, betas, qs) = go m v0 (zeroVec v0) 0 [] matvec
+{- | Projects a new trial vector onto the set of existing known vectors. Then it subtracts those vectors from the trial vector
+to get back a new trial vector. This is to try to eliminate orbital sharing via paul-exclusion principle. -}
+projectOut :: Vec -> [Vec] -> Vec
+projectOut = foldl' (\acc q -> acc `subA` scaleA (dotA acc q) q)
 
-    tridiag = assoc (m, m) 0 $
+-- | Runs a lanczos iteration up to j steps. The more steps, the closer to actually solving a matrix this is
+lanczosIter :: [Vec] -> Int -> Vec -> Vec -> Double -> [Vec] -> (Vec -> Vec) -> [(Double, Double, Vec)]
+lanczosIter _ 0 _ _ _ _ _ = []
+lanczosIter occupied j q qPrev betaPrev qsRev matvec =
+  let 
+    w0 :: Vec
+    w0 = matvec q
+    alpha :: Double
+    alpha = dotA w0 q
+    w1 :: Vec
+    w1 = w0 `subA` scaleA alpha q `subA` scaleA betaPrev qPrev
+    w2 :: Vec
+    w2 = projectOut (foldl' (\acc qq -> acc `subA` scaleA (dotA acc qq) qq) w1 (q : qsRev)) occupied
+    beta :: Double
+    beta = normA w2
+    qNext :: Vec
+    qNext = if beta < 1e-10 then zeroVec q else scaleA (1 / beta) w2
+  in (alpha, beta, q) : lanczosIter occupied (j - 1) qNext q beta (q : qsRev) matvec
+
+-- | Lowest eigenpair (ground state) via Lanczos.
+lanczosLowestExcluding :: forall dim lcsu unit. (ValidDLU dim lcsu unit)
+  => [Vec] -> (Vec -> Vec, unit) -> Idx3 -> (Qu dim lcsu Double, Vec)
+lanczosLowestExcluding occupied (matvec, unit) bnd =
+  let
+    m'   = min m (rangeSize (bounds v0) - length occupied)
+    v0'  = orthonormalStart (startingVector bnd) occupied
+    (alphas, betas, qs) = unzip3 $ lanczosIter occupied m' v0' (zeroVec v0') 0 [] matvec
+
+    tridiag = assoc (m', m') 0 $
       [ ((i, i), a) | (i, a) <- zip [0 ..] alphas ] ++
       concat [ [((i, i+1), b), ((i+1, i), b)] | (i, b) <- zip [0 ..] (init betas) ]
 
@@ -116,9 +138,44 @@ lanczosLowest (matvec, unit) bnd =
     m = 30
     v0 = startingVector bnd
 
+-- | Normalizes a vector to unit length, returning the zero vector instead if its norm is too small
+normVec :: Vec -> Vec
+normVec v =
+  let n = normA v
+  in if n < 1e-8 then zeroVec v else scaleA (1 / n) v
+
+-- | Projects a vector out of the subspace spanned by a list of occupied vectors (making a new orthogonal vector) and normalizes
+orthonormalStart :: Vec -> [Vec] -> Vec
+orthonormalStart = (normVec .) . projectOut
+
+-- | Lowest eigenpair (ground state) via Lanczos.
+lanczosLowest :: forall dim lcsu unit. (ValidDLU dim lcsu unit)
+  => (Vec -> Vec, unit) -> Idx3 -> (Qu dim lcsu Double, Vec)
+lanczosLowest = lanczosLowestExcluding []
+
 neighborsOf :: Idx3 -> Idx3 -> [Idx3]
 neighborsOf (i, j, k) (iMax, jMax, kMax) = concat
       [ [(i - 1, j, k) | i > 0], [(i + 1, j, k) | i < iMax]
       , [(i, j - 1, k) | j > 0], [(i, j + 1, k) | j < jMax]
       , [(i, j, k - 1) | k > 0], [(i, j, k + 1) | k < kMax]
       ]
+
+-- | Adds 2 grids with a unit type together Currently assumes same spacing too
+addGrids :: PhysicalGrid (Qu dim lcsu Double) -> PhysicalGrid (Qu dim lcsu Double) -> PhysicalGrid (Qu dim lcsu Double)
+addGrids (PhysicalGrid s a) (PhysicalGrid _ b) =
+  PhysicalGrid s (listArray (bounds a) (zipWith (|+|) (elems a) (elems b)))
+
+-- | A function to find the potential energy at a given point in a harmonic system
+harmonicFunc :: SpringConstant -> Length -> Length -> Length -> Energy
+harmonicFunc springConstant x y z =
+  let
+    r2 :: DistSq
+    r2 = (x |*| x) |+| (y |*| y) |+| (z |*| z)
+  in 0.5 |*| springConstant |*| r2
+
+-- | Given two category labels and a count, generate every way to split that many items avoiding mirror-image duplicates
+binaryPartitions :: a -> a -> Natural -> [[a]]
+binaryPartitions labelA labelB total =
+  [ replicate (fromIntegral numA) labelA ++ replicate (fromIntegral (total - numA)) labelB
+  | numA <- [0 .. total `div` 2]
+  ]
