@@ -1,0 +1,11 @@
+{
+  "[haskell]": {
+    "editor.defaultFoldingRangeProvider": "zokugun.explicit-folding",
+    "explicitFolding.rules": [
+      {
+        "beginRegex": "-- ===\\s*REGION\\b",
+        "endRegex": "-- ===\\s*ENDREGION\\b"
+      }
+    ]
+  }
+}
