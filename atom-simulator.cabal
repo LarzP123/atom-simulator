@@ -12,6 +12,7 @@ library
                     array,
                     hmatrix,
                     units
+  ghc-options:      -O2
 
 executable atom-simulator
   hs-source-dirs:   app
@@ -19,3 +20,4 @@ executable atom-simulator
   build-depends:    base,
                     atom-simulator,
                     units
+  ghc-options: -O2 -threaded -rtsopts "-with-rtsopts=-N"
