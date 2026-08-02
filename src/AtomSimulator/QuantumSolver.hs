@@ -12,7 +12,6 @@ import Data.Array.IArray (listArray, elems, (!), IArray (bounds))
 import Data.Metrology.Poly
 import Data.List
 import Data.Ord
-import GHC.Natural
 import GHC.RTS.Flags (ProfFlags(ccsLength))
 import Data.Metrology.Show
 import Data.Function (on)
@@ -21,7 +20,7 @@ import Numeric.LinearAlgebra (Convert(double))
 
 -- ===REGION Creating Potential Energy Grids
 -- | Creates a 3D potential energy grid from a function that says a given potential energy at a point in space
-createPotentialGrid :: (Length -> Length -> Length -> Energy) -> Natural -> Length -> PhysicalGrid Energy
+createPotentialGrid :: (Length -> Length -> Length -> Energy) -> Int -> Length -> PhysicalGrid Energy
 createPotentialGrid = createGridFromFuncShifted
 
 -- | Finds the harmonic potential at a position given a spring constant
@@ -136,7 +135,7 @@ solveLowestOribtal grid@(PhysicalGrid s v) = WaveSolution (energy, densityGrid, 
 
 -- ===REGION Orthogonality Forcing
 -- | Generates every combination of spin up/spin down unique assignments for a given number of electrons
-candidateSpinAssignments :: Natural -> [[Spin]]
+candidateSpinAssignments :: Int -> [[Spin]]
 candidateSpinAssignments = binaryPartitions SpinUp SpinDown
 
 -- | The bare one-electron energy <psi|T+V_ext|psi> — kinetic + external potential only
@@ -232,7 +231,7 @@ greedyPass (mySpin : restSpins) cumulativeDensity previousElectrons extPotential
   in (energy, waveFunc, mySpin) : greedyPass restSpins newCumulativeDensity (previousElectrons ++ [(waveFunc, mySpin)]) extPotential
 
 -- | Does a self consistent field calculation of repeated electron orbital position checking and potential energy generating on repeat
-runSCF :: Natural -> PhysicalGrid Energy -> [Spin] -> [WaveState]
+runSCF :: Int -> PhysicalGrid Energy -> [Spin] -> [WaveState]
 runSCF maxIterations extPotential spins = iterateSCF 0 initialStates
   where
     initialStates :: [WaveState]
@@ -242,7 +241,7 @@ runSCF maxIterations extPotential spins = iterateSCF 0 initialStates
       where
         energyDiff :: WaveState -> WaveState -> Double
         energyDiff (e1, _, _) (e2, _, _) = abs ((e1 |-| e2) # ElectronVolt)
-    iterateSCF :: Natural -> [WaveState] -> [WaveState]
+    iterateSCF :: Int -> [WaveState] -> [WaveState]
     iterateSCF itersDone states
       | itersDone >= maxIterations = states
       | converged states next      = next
@@ -252,7 +251,7 @@ runSCF maxIterations extPotential spins = iterateSCF 0 initialStates
         next = scfPass states extPotential
 
 -- | Finds hartree fock solutions for total energy and electron orbital solutions given a number of electrons, a max iteration, and a starting external potential
-solveInteractingElectronsHF :: Natural -> Natural -> PhysicalGrid Energy -> (Energy, [WaveSolution])
+solveInteractingElectronsHF :: Int -> Int -> PhysicalGrid Energy -> (Energy, [WaveSolution])
 solveInteractingElectronsHF numElectrons maxIterations extPotential =
   (totalEnergyHF extPotential bestStates, toSpinOrbitals bestStates)
   where

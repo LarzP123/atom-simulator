@@ -9,17 +9,16 @@ import Data.Ord
 import Data.List
 import Data.Array (Array)
 import Data.Array.IArray
-import GHC.Natural
 import Data.Array.Base (amap, UArray)
 import Data.Kind (Type)
 
 -- ===REGION Idx3 Coordintes
 
 -- | A point representing a given coordinate on a 3D grid
-type Idx3 = (Natural, Natural, Natural)
+type Idx3 = (Int, Int, Int)
 
 -- | Gets the difference between 2 natural numbers (subtraction and absolute value all in one)
-(|--|) :: Natural -> Natural -> Natural
+(|--|) :: Int -> Int -> Int
 (|--|) a b
   | a >= b    = a - b
   | otherwise = b - a
@@ -29,7 +28,7 @@ cartDist :: Idx3 -> Idx3 -> Length -> Length
 cartDist (i1,j1,k1) (i2,j2,k2) spacing = spacing |*| sqrt(fromIntegral $ (i1|--|i2)^2 + (j1|--|j2)^2 + (k1|--|k2)^2)
 
 -- | Determines number of moves along an axis need to be taken one step in order to get between points
-manhattan :: Idx3 -> Idx3 -> Natural
+manhattan :: Idx3 -> Idx3 -> Int
 manhattan (i1,j1,k1) (i2,j2,k2) = (i1|--|i2) + (j1|--|j2) + (k1|--|k2)
 
 -- | Given a position, and the maximum position on a grid. This will return back a list of all directly neighboring positions
@@ -51,7 +50,7 @@ Also contains a 3d grid/triple array containing all of the points in the grid wi
 data PhysicalGrid a = PhysicalGrid { spacing :: Length, samples :: Grid3D a } deriving (Show, Eq)
 
 -- | Like createGridFromFunc but takes a 0 centered function and makes it centered at middle of grid we are creating
-createGridFromFuncShifted :: forall a. (Length -> Length -> Length -> a) -> Natural -> Length -> PhysicalGrid a
+createGridFromFuncShifted :: forall a. (Length -> Length -> Length -> a) -> Int -> Length -> PhysicalGrid a
 createGridFromFuncShifted f n s = createGridFromFunc shifted n s
   where
     offset :: Length
@@ -63,7 +62,7 @@ createGridFromFuncShifted f n s = createGridFromFunc shifted n s
 2. a integer specifying the spacing between each point in a grid,
 3. a physical distance between each point in a grid
 outputs a physical grid containning values calculated from the function at each spot in space -}
-createGridFromFunc :: forall a. (Length -> Length -> Length -> a) -> Natural -> Length -> PhysicalGrid a
+createGridFromFunc :: forall a. (Length -> Length -> Length -> a) -> Int -> Length -> PhysicalGrid a
 createGridFromFunc f n s = PhysicalGrid s (listArray ((0,0,0),(n-1,n-1,n-1)) values)
   where
     values :: [a]
@@ -210,7 +209,7 @@ harmonicFunc springConstant x y z =
   in 0.5 |*| springConstant |*| r2
 
 -- | Given two category labels and a count, generate every way to split that many items avoiding mirror-image duplicates
-binaryPartitions :: a -> a -> Natural -> [[a]]
+binaryPartitions :: a -> a -> Int -> [[a]]
 binaryPartitions labelA labelB total =
   [ replicate (fromIntegral numA) labelA ++ replicate (fromIntegral (total - numA)) labelB
   | numA <- [0 .. total `div` 2]

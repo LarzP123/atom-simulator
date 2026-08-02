@@ -4,7 +4,6 @@ import AtomSimulator.QuantumSolver
 import Data.Metrology.Poly
 import Data.List (sortBy)
 import Data.Ord (comparing)
-import GHC.Natural (Natural)
 import Text.Printf
 
 {-| Currently this just returns output for a solution for a quantum well as a demonstration-}
