@@ -1,8 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeOperators #-}
-{-# OPTIONS_GHC -Wmissing-signatures -Wmissing-local-signatures #-}
-{-# LANGUAGE InstanceSigs #-}
 module AtomSimulator.QuantumSolver where
 
 import AtomSimulator.Units
@@ -12,16 +7,16 @@ import Data.Array.IArray (listArray, elems, (!), IArray (bounds))
 import Data.Metrology.Poly
 import Data.List
 import Data.Ord
-import GHC.Natural
 import GHC.RTS.Flags (ProfFlags(ccsLength))
 import Data.Metrology.Show
 import Data.Function (on)
 import Text.Printf (printf)
 import Numeric.LinearAlgebra (Convert(double))
+import Control.Parallel.Strategies (parList, rseq, using)
 
 -- ===REGION Creating Potential Energy Grids
 -- | Creates a 3D potential energy grid from a function that says a given potential energy at a point in space
-createPotentialGrid :: (Length -> Length -> Length -> Energy) -> Natural -> Length -> PhysicalGrid Energy
+createPotentialGrid :: (Length -> Length -> Length -> Energy) -> Int -> Length -> PhysicalGrid Energy
 createPotentialGrid = createGridFromFuncShifted
 
 -- | Finds the harmonic potential at a position given a spring constant
@@ -29,18 +24,19 @@ harmonicPotential :: SpringConstant -> Length -> Length -> Length -> Energy
 harmonicPotential = harmonicFunc
 
 -- | Given an electron density, this will find the potential energy for another electron to exist nearby
-coulombPotentialFromDensity :: Charge -> Charge -> PhysicalGrid Density -> PhysicalGrid Energy
-coulombPotentialFromDensity q1 q2 (PhysicalGrid spacing grid) = 
-  let
-    potentialGrid :: Grid3D Energy
-    potentialGrid = listArray (bounds grid) [ potentialAt p | p <- allPoints ]
-  in PhysicalGrid spacing potentialGrid
+coulombPotentialFromDensity :: Array Idx3 InverseLength -> Charge -> Charge -> PhysicalGrid Density -> PhysicalGrid Energy
+coulombPotentialFromDensity invTable q1 q2 (PhysicalGrid spacing grid) =
+  PhysicalGrid spacing (listArray (bounds grid) [ potentialAt p | p <- allPoints ])
   where
-    allPoints = range $ bounds grid
+    allPoints = range (bounds grid)
     amtOfParticleAtPoint :: Idx3 -> Double
     amtOfParticleAtPoint point = (grid ! point) |*| (spacing |*| spacing |*| spacing) # Number
+    amtCache :: Vec
+    amtCache = listArray (bounds grid) [ amtOfParticleAtPoint pt | pt <- allPoints ]
     sumInverseDists :: Idx3 -> InverseLength
-    sumInverseDists p = foldr1 (|+|) [ (amtOfParticleAtPoint q % Number) |/| cartDist p q spacing | q <- allPoints, q /= p ]
+    sumInverseDists p = foldl'
+      (\ acc q -> if q == p then acc else acc |+| (amtCache ! q % Number) |*| invOffsetAt invTable p q)
+      ((0 % Number) |/| (1 % Nanometer)) allPoints
     relCoulombConst :: EnergyDist
     relCoulombConst = q1 |*| q2 |/| (4 |*| pi |*| vacuumPermittivity)
     potentialAt :: Idx3 -> Energy
@@ -60,15 +56,16 @@ instance Show WaveSolution where
     Just s  -> show s ++ " " ++ show e
     Nothing -> show e
 
--- | PLEASE DELETE ME
-showInHartree :: WaveSolution -> String
-showInHartree (WaveSolution (e, _, spin)) = case spin of
-  Just s  -> show s ++ " " ++ printf "%.4f Hartree" (e # Hartree)
-  Nothing -> printf "%.4f Hartree" (e # Hartree)
+-- | Shows a wavesolution in Energy units specified
+showWaveSolutionInUnit :: forall dim lcsu unit. (Energy ~ Qu dim lcsu Double, ValidDLU dim lcsu unit, Show unit) => unit -> WaveSolution -> String
+showWaveSolutionInUnit unit (WaveSolution (e, _, spin)) = case spin of
+  Just s  -> show s ++ " " ++ printf "%.4f %s" (e # unit) (show unit)
+  Nothing -> printf "%.4f %s" (e # unit) (show unit)
 
 instance Ord WaveSolution where
   compare = comparing (\(WaveSolution (e, _, _)) -> e)
 
+{-# INLINE waveToProb #-}
 -- | Given a wave function/result, convert it to a probabilty. (ie. psi -> |psi|^2)
 waveToProb :: Length -> Double -> Density
 waveToProb s = (|/| (s |*| s |*| s)) . (% Number) . (^2)
@@ -136,7 +133,7 @@ solveLowestOribtal grid@(PhysicalGrid s v) = WaveSolution (energy, densityGrid, 
 
 -- ===REGION Orthogonality Forcing
 -- | Generates every combination of spin up/spin down unique assignments for a given number of electrons
-candidateSpinAssignments :: Natural -> [[Spin]]
+candidateSpinAssignments :: Int -> [[Spin]]
 candidateSpinAssignments = binaryPartitions SpinUp SpinDown
 
 -- | The bare one-electron energy <psi|T+V_ext|psi> — kinetic + external potential only
@@ -156,11 +153,10 @@ totalEnergyHF extPotential states =
 -- ===REGION Hartree Fock
 {-| Hartree-Fock exchange contribution. Given the orbitals of electrons already placed into the
 system, this is what gets subtracted from the plain Hamiltonian's action on a trial wavefunction. -}
-exchangeTerm :: Length -> [Vec] -> Vec -> Vec
-exchangeTerm _ [] psi = zeroVec psi
-exchangeTerm s previousOrbitals psi = foldl1' addA (map contributionFrom previousOrbitals)
+exchangeTerm :: Array Idx3 InverseLength -> Length -> [Vec] -> Vec -> Vec
+exchangeTerm _ _ [] psi = zeroVec psi
+exchangeTerm invTable _ previousOrbitals psi = foldl1' addA (map contributionFrom previousOrbitals)
   where
-    pts :: [Idx3]
     pts = range (bounds psi)
     exchangeConst :: EnergyDist
     exchangeConst = electronCharge |*| electronCharge |/| (4 |*| pi |*| vacuumPermittivity)
@@ -169,24 +165,25 @@ exchangeTerm s previousOrbitals psi = foldl1' addA (map contributionFrom previou
       [ (exchangeConst |*| overlapPotentialAt p |*| (phi ! p % Number)) # ElectronVolt | p <- pts ]
       where
         overlapPotentialAt :: Idx3 -> InverseLength
-        overlapPotentialAt p = foldr1 (|+|)
-          [ ((phi ! q * psi ! q) % Number) |/| cartDist p q s | q <- pts, q /= p ]
+        overlapPotentialAt p = foldl'
+          (\ acc q -> if q == p then acc else acc |+| ((phi ! q * psi ! q) % Number) |*| invOffsetAt invTable p q)
+          ((0 % Number) |/| (1 % Nanometer)) pts
 
 {- | Builds a matrix-vector operator representing the Fock operator acting on a test wavefunction, by taking the
 plain single-particle Hamiltonian (kinetic + external potential) and subtracting the Hartree-Fock exchange contribution. -}
 hamiltonianVectorHF :: forall dim lcsu unit. (Energy ~ Qu dim lcsu Double, ValidDLU dim lcsu unit)
-  => unit -> PhysicalGrid Energy -> [Vec] -> (Vec -> Vec, unit)
-hamiltonianVectorHF unit grid previousOrbitals =
+  => Array Idx3 InverseLength -> unit -> PhysicalGrid Energy -> [Vec] -> (Vec -> Vec, unit)
+hamiltonianVectorHF invTable unit grid previousOrbitals =
   let
     localMatvec :: Vec -> Vec
     (localMatvec, _) = hamiltonianVector unit grid
     fockMatvec :: Vec -> Vec
-    fockMatvec psi = localMatvec psi `subA` exchangeTerm (spacing grid) previousOrbitals psi
+    fockMatvec psi = localMatvec psi `subA` exchangeTerm invTable (spacing grid) previousOrbitals psi
   in (fockMatvec, unit)
 
 -- | An pass on adjusting and finding new states when solving for a self consitent field of multiple electrons
-scfPass :: [WaveState] -> PhysicalGrid Energy -> [WaveState]
-scfPass states extPotential = map resolve [0 .. length states - 1]
+scfPass :: Array Idx3 InverseLength -> [WaveState] -> PhysicalGrid Energy -> [WaveState]
+scfPass invTable states extPotential = map resolve [0 .. length states - 1]
   where
     othersDensity :: Int -> PhysicalGrid Density
     othersDensity i = case [ mapVecToGrid extPotential psi waveToProb | (j, (_, psi, _)) <- zip [0 ..] states, j /= i ] of
@@ -201,7 +198,7 @@ scfPass states extPotential = map resolve [0 .. length states - 1]
         mySpin :: Spin
         (_, _, mySpin) = states !! i
         repulsion :: PhysicalGrid Energy
-        repulsion = coulombPotentialFromDensity electronCharge electronCharge (othersDensity i)
+        repulsion = coulombPotentialFromDensity invTable electronCharge electronCharge (othersDensity i)
         effectivePotential :: PhysicalGrid Energy
         effectivePotential = addGrids extPotential repulsion
         occupied :: [Vec]
@@ -209,16 +206,16 @@ scfPass states extPotential = map resolve [0 .. length states - 1]
         energy :: Energy
         waveFunc :: Vec
         (energy, waveFunc) = lanczosLowestExcluding occupied
-          (hamiltonianVectorHF ElectronVolt effectivePotential occupied) (bndGrid extPotential)
+          (hamiltonianVectorHF invTable ElectronVolt effectivePotential occupied) (bndGrid extPotential)
       in (energy, waveFunc, mySpin)
 
 -- | An initial first greedy pass when doing a self-consitent field setup.
-greedyPass :: [Spin] -> PhysicalGrid Density -> [(Vec, Spin)] -> PhysicalGrid Energy -> [WaveState]
-greedyPass [] _ _ _ = []
-greedyPass (mySpin : restSpins) cumulativeDensity previousElectrons extPotential =
+greedyPass :: Array Idx3 InverseLength -> [Spin] -> PhysicalGrid Density -> [(Vec, Spin)] -> PhysicalGrid Energy -> [WaveState]
+greedyPass _ [] _ _ _ = []
+greedyPass invTable (mySpin : restSpins) cumulativeDensity previousElectrons extPotential =
   let 
     repulsion :: PhysicalGrid Energy
-    repulsion = coulombPotentialFromDensity electronCharge electronCharge cumulativeDensity
+    repulsion = coulombPotentialFromDensity invTable electronCharge electronCharge cumulativeDensity
     effectivePotential :: PhysicalGrid Energy
     effectivePotential = addGrids extPotential repulsion
     sameSpinPrevious :: [Vec]
@@ -226,38 +223,42 @@ greedyPass (mySpin : restSpins) cumulativeDensity previousElectrons extPotential
     energy :: Energy
     waveFunc :: Vec
     (energy, waveFunc)  = lanczosLowestExcluding sameSpinPrevious
-      (hamiltonianVectorHF ElectronVolt effectivePotential sameSpinPrevious) (bndGrid extPotential)
+      (hamiltonianVectorHF invTable  ElectronVolt effectivePotential sameSpinPrevious) (bndGrid extPotential)
     newCumulativeDensity :: PhysicalGrid Density
     newCumulativeDensity = addGrids cumulativeDensity (mapVecToGrid extPotential waveFunc waveToProb)
-  in (energy, waveFunc, mySpin) : greedyPass restSpins newCumulativeDensity (previousElectrons ++ [(waveFunc, mySpin)]) extPotential
+  in (energy, waveFunc, mySpin) : greedyPass invTable restSpins newCumulativeDensity (previousElectrons ++ [(waveFunc, mySpin)]) extPotential
 
 -- | Does a self consistent field calculation of repeated electron orbital position checking and potential energy generating on repeat
-runSCF :: Natural -> PhysicalGrid Energy -> [Spin] -> [WaveState]
-runSCF maxIterations extPotential spins = iterateSCF 0 initialStates
+runSCF :: Array Idx3 InverseLength -> Int -> PhysicalGrid Energy -> [Spin] -> [WaveState]
+runSCF invTable maxIterations extPotential spins = iterateSCF 0 initialStates
   where
     initialStates :: [WaveState]
-    initialStates = greedyPass spins (toZeroDensity extPotential) [] extPotential
+    initialStates = greedyPass invTable spins (toZeroDensity extPotential) [] extPotential
     converged :: [WaveState] -> [WaveState] -> Bool
     converged old new = all (< 1.0e-6) (zipWith energyDiff old new)
       where
         energyDiff :: WaveState -> WaveState -> Double
         energyDiff (e1, _, _) (e2, _, _) = abs ((e1 |-| e2) # ElectronVolt)
-    iterateSCF :: Natural -> [WaveState] -> [WaveState]
+    iterateSCF :: Int -> [WaveState] -> [WaveState]
     iterateSCF itersDone states
       | itersDone >= maxIterations = states
       | converged states next      = next
       | otherwise                  = iterateSCF (itersDone + 1) next
       where
         next :: [WaveState]
-        next = scfPass states extPotential
+        next = scfPass invTable states extPotential
 
 -- | Finds hartree fock solutions for total energy and electron orbital solutions given a number of electrons, a max iteration, and a starting external potential
-solveInteractingElectronsHF :: Natural -> Natural -> PhysicalGrid Energy -> (Energy, [WaveSolution])
+solveInteractingElectronsHF :: Int -> Int -> PhysicalGrid Energy -> (Energy, [WaveSolution])
 solveInteractingElectronsHF numElectrons maxIterations extPotential =
   (totalEnergyHF extPotential bestStates, toSpinOrbitals bestStates)
   where
+    n :: Int
+    n = let (_, (iMax,_,_)) = bounds (samples extPotential) in iMax + 1
+    invTable :: Array Idx3 InverseLength
+    invTable = invOffsetTable n (spacing extPotential)
     candidates :: [[WaveState]]
-    candidates = map (runSCF maxIterations extPotential) (candidateSpinAssignments numElectrons)
+    candidates = map (runSCF invTable maxIterations extPotential) (candidateSpinAssignments numElectrons) `using` parList rseq
     bestStates :: [WaveState]
     bestStates = minimumBy (comparing scoreOf) candidates
     scoreOf :: [WaveState] -> Double

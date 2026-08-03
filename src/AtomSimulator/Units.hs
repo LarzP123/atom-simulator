@@ -1,7 +1,3 @@
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE TypeOperators #-}
-{-# OPTIONS_GHC -Wmissing-signatures -Wmissing-local-signatures #-}
 module AtomSimulator.Units where
 import Data.Metrology
 import Data.Metrology.TH

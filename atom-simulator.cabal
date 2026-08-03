@@ -3,7 +3,15 @@ name:               atom-simulator
 version:            0.1.0.0
 build-type:         Simple
 
+common shared-extensions
+  default-language:   GHC2024
+  default-extensions: Strict,
+                       TemplateHaskell,
+                       TypeFamilies
+  ghc-options:        -O2 -Wmissing-signatures -Wmissing-local-signatures
+
 library
+  import:           shared-extensions
   hs-source-dirs:   src
   exposed-modules:  AtomSimulator.QuantumSolver,
                     AtomSimulator.Units
@@ -11,11 +19,14 @@ library
   build-depends:    base >=4 && <5,
                     array,
                     hmatrix,
-                    units
+                    units,
+                    parallel
 
 executable atom-simulator
+  import:           shared-extensions
   hs-source-dirs:   app
   main-is:          Main.hs
   build-depends:    base,
                     atom-simulator,
                     units
+  ghc-options:      -threaded -rtsopts "-with-rtsopts=-N"

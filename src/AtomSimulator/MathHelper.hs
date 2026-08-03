@@ -1,37 +1,35 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wmissing-signatures -Wmissing-local-signatures #-}
 module AtomSimulator.MathHelper where
-
 import AtomSimulator.Units
 import Data.Metrology.Poly
 import Numeric.LinearAlgebra
+    ( Matrix, Vector, (><), eigSH, trustSym, toList, toColumns, assoc )
 import Data.Ord
 import Data.List
 import Data.Array (Array)
 import Data.Array.IArray
-import GHC.Natural
-import Data.Array.Base (amap, UArray)
+import Data.Array.Base (amap, UArray, unsafeAt, unsafeWrite, numElements)
 import Data.Kind (Type)
+import Control.Monad.ST (ST)
+import Data.Array.ST (STUArray, runSTUArray, newArray_)
 
 -- ===REGION Idx3 Coordintes
 
 -- | A point representing a given coordinate on a 3D grid
-type Idx3 = (Natural, Natural, Natural)
+type Idx3 = (Int, Int, Int)
 
+{-# INLINE (|--|) #-}
 -- | Gets the difference between 2 natural numbers (subtraction and absolute value all in one)
-(|--|) :: Natural -> Natural -> Natural
+(|--|) :: Int -> Int -> Int
 (|--|) a b
   | a >= b    = a - b
   | otherwise = b - a
 
--- | Distance in cartesian space between 2 points
-cartDist :: Idx3 -> Idx3 -> Length -> Length
-cartDist (i1,j1,k1) (i2,j2,k2) spacing = spacing |*| sqrt(fromIntegral $ (i1|--|i2)^2 + (j1|--|j2)^2 + (k1|--|k2)^2)
-
+{-# INLINE manhattan #-}
 -- | Determines number of moves along an axis need to be taken one step in order to get between points
-manhattan :: Idx3 -> Idx3 -> Natural
+manhattan :: Idx3 -> Idx3 -> Int
 manhattan (i1,j1,k1) (i2,j2,k2) = (i1|--|i2) + (j1|--|j2) + (k1|--|k2)
 
+{-# INLINE neighborsOf #-}
 -- | Given a position, and the maximum position on a grid. This will return back a list of all directly neighboring positions
 neighborsOf :: Idx3 -> Idx3 -> [Idx3]
 neighborsOf (i, j, k) (iMax, jMax, kMax) = concat
@@ -51,7 +49,7 @@ Also contains a 3d grid/triple array containing all of the points in the grid wi
 data PhysicalGrid a = PhysicalGrid { spacing :: Length, samples :: Grid3D a } deriving (Show, Eq)
 
 -- | Like createGridFromFunc but takes a 0 centered function and makes it centered at middle of grid we are creating
-createGridFromFuncShifted :: forall a. (Length -> Length -> Length -> a) -> Natural -> Length -> PhysicalGrid a
+createGridFromFuncShifted :: forall a. (Length -> Length -> Length -> a) -> Int -> Length -> PhysicalGrid a
 createGridFromFuncShifted f n s = createGridFromFunc shifted n s
   where
     offset :: Length
@@ -63,7 +61,7 @@ createGridFromFuncShifted f n s = createGridFromFunc shifted n s
 2. a integer specifying the spacing between each point in a grid,
 3. a physical distance between each point in a grid
 outputs a physical grid containning values calculated from the function at each spot in space -}
-createGridFromFunc :: forall a. (Length -> Length -> Length -> a) -> Natural -> Length -> PhysicalGrid a
+createGridFromFunc :: forall a. (Length -> Length -> Length -> a) -> Int -> Length -> PhysicalGrid a
 createGridFromFunc f n s = PhysicalGrid s (listArray ((0,0,0),(n-1,n-1,n-1)) values)
   where
     values :: [a]
@@ -78,6 +76,7 @@ addGrids (PhysicalGrid s a) (PhysicalGrid _ b) =
 -- | Gets the upper bounds of a grid
 bndGrid :: PhysicalGrid a -> Idx3
 bndGrid (PhysicalGrid _ v) = snd (bounds v)
+
 -- ===ENDREGION 
 
 -- ===REGION Vectors
@@ -86,28 +85,69 @@ type Vec = UArray Idx3 Double
 
 -- | Takes the dot product of 2 Vectors
 dotA :: Vec -> Vec -> Double
-dotA a b = sum (zipWith (*) (elems a) (elems b))
+dotA a b = go 0 0
+  where
+    len :: Int
+    len = numElements a
+    go :: Int -> Double -> Double
+    go i acc
+      | i >= len  = acc
+      | otherwise = go (i + 1) (acc + unsafeAt a i * unsafeAt b i)
 
 normA :: Vec -> Double
 normA a = sqrt (dotA a a)
 
+{-# INLINE scaleA #-}
 -- | Scales a vector by a quantity. Multiplies every value in the vector by the scaling value
 scaleA :: Double -> Vec -> Vec
 scaleA c = amap (* c)
 
+{-# INLINE zipArrays #-}
 -- | Does repeated addition/subtraction over 2 Vectors to combine them into one new vector
-subA, addA :: Vec -> Vec -> Vec
-subA a b = listArray (bounds a) (zipWith (-) (elems a) (elems b))
-addA a b = listArray (bounds a) (zipWith (+) (elems a) (elems b))
+zipArrays :: (Double -> Double -> Double) -> Vec -> Vec -> Vec
+zipArrays f a b = runSTUArray (build (bounds a))
+  where
+    build :: forall s. (Idx3, Idx3) -> ST s (STUArray s Idx3 Double)
+    build bnds = do
+      arr <- newArray_ bnds :: ST s (STUArray s Idx3 Double)
+      let len = numElements a
+          go :: Int -> ST s ()
+          go i | i >= len  = return ()
+                | otherwise = unsafeWrite arr i (f (unsafeAt a i) (unsafeAt b i)) >> go (i + 1)
+      go 0
+      return arr
 
--- | PLEASE DELETE
-startingVector :: Idx3 -> Vec
-startingVector bnd =
-  let 
+-- | Does repeated addition over 2 Vectors to combine them into one new vector
+addA :: Vec -> Vec -> Vec
+addA = zipArrays (+)
+-- | Does repeated subtraction over 2 Vectors to combine them into one new vector
+subA :: Vec -> Vec -> Vec
+subA = zipArrays (-)
+
+gaussianBump :: Idx3 -> Vec
+gaussianBump bnd@(iMax, jMax, kMax) =
+  amap (/ normA unNormalized) unNormalized
+  where
+    ci, cj, ck :: Double
+    ci = fromIntegral iMax / 2
+    cj = fromIntegral jMax / 2
+    ck = fromIntegral kMax / 2
+    radius :: Double
+    radius = fromIntegral (maximum [iMax, jMax, kMax]) / 3
+    valueAt :: Idx3 -> Double
+    valueAt (i, j, k) =
+      let
+        di = fromIntegral i - ci
+        dj = fromIntegral j - cj
+        dk = fromIntegral k - ck
+        r2 = di*di + dj*dj + dk*dk
+      in exp (negate r2 / (2 * radius * radius))
+    allPoints :: [Idx3]
+    allPoints = [ (i,j,k) | i <- [0..iMax], j <- [0..jMax], k <- [0..kMax] ]
     unNormalized :: UArray Idx3 Double
-    unNormalized = listArray ((0,0,0),bnd) [ 0.5 + 0.3 * sin (fromIntegral i) | i <- [1 .. rangeSize ((0,0,0),bnd)] ]
-  in amap (/ normA unNormalized) unNormalized 
+    unNormalized = listArray ((0,0,0), bnd) (map valueAt allPoints)
 
+{-# INLINE zeroVec #-}
 -- | Given an existing Vector, creates a Zero vector matching the same samples
 zeroVec :: Vec -> UArray Idx3 Double
 zeroVec = amap (const 0)
@@ -126,6 +166,26 @@ normVec v =
 -- | Projects a vector out of the subspace spanned by a list of occupied vectors (making a new orthogonal vector) and normalizes
 orthonormalStart :: Vec -> [Vec] -> Vec
 orthonormalStart = (normVec .) . projectOut
+
+{-| Given a reference grid for shape/spacing, and a Vector, and a function to convert the vector to a unit-having quantity
+convert the vector into a phsyical grid -}
+mapVecToGrid :: PhysicalGrid a -> Vec -> (Length -> Double -> b) -> PhysicalGrid b
+mapVecToGrid (PhysicalGrid s v) psi f = PhysicalGrid s (fmap (f s) (listArray (bounds v) (elems psi)))
+
+-- | Creates a lookup array of inverse distances (1/r) for every integer grid offset, scaled by the given spacing
+invOffsetTable :: Int -> Length -> Array Idx3 InverseLength
+invOffsetTable n spacing = listArray bnds [ invAt di dj dk | di <- rng, dj <- rng, dk <- rng ]
+  where
+    rng  = [-(n-1) .. (n-1)]
+    bnds = ((-(n-1),-(n-1),-(n-1)), (n-1,n-1,n-1))
+    invAt :: Int -> Int -> Int -> InverseLength
+    invAt 0 0 0 = (0 % Number) |/| (1 % Nanometer)  -- never looked up (callers skip q == p); keeps the array total
+    invAt di dj dk = (1 % Number) |/| (spacing |*| sqrt (fromIntegral (di*di + dj*dj + dk*dk)))
+
+{-# INLINE invOffsetAt #-}
+-- | looks up the precomputed inverse distance between two grid points by indexing the table with their coordinate difference
+invOffsetAt :: Array Idx3 InverseLength -> Idx3 -> Idx3 -> InverseLength
+invOffsetAt table (i1,j1,k1) (i2,j2,k2) = table ! (i1 - i2, j1 - j2, k1 - k2)
 -- ===ENDREGION
 
 -- ===REGION Lanczos Solving
@@ -173,9 +233,9 @@ lanczosLowestExcluding :: forall dim lcsu unit. (ValidDLU dim lcsu unit)
 lanczosLowestExcluding occupied (matvec, unit) bnd =
   let
     v0 :: Vec
-    v0  = orthonormalStart (startingVector bnd) occupied
+    v0  = orthonormalStart (gaussianBump bnd) occupied
     m :: Int
-    m = min 30 (rangeSize (bounds v0) - length occupied)
+    m = min 20 (rangeSize (bounds v0) - length occupied)
     alphas :: [Double]
     betas :: [Double]
     qs :: [Vec]
@@ -210,16 +270,11 @@ harmonicFunc springConstant x y z =
   in 0.5 |*| springConstant |*| r2
 
 -- | Given two category labels and a count, generate every way to split that many items avoiding mirror-image duplicates
-binaryPartitions :: a -> a -> Natural -> [[a]]
+binaryPartitions :: a -> a -> Int -> [[a]]
 binaryPartitions labelA labelB total =
   [ replicate (fromIntegral numA) labelA ++ replicate (fromIntegral (total - numA)) labelB
   | numA <- [0 .. total `div` 2]
   ]
-
-{-| Given a reference grid for shape/spacing, and a Vector, and a function to convert the vector to a unit-having quantity
-convert the vector into a phsyical grid -}
-mapVecToGrid :: PhysicalGrid a -> Vec -> (Length -> Double -> b) -> PhysicalGrid b
-mapVecToGrid (PhysicalGrid s v) psi f = PhysicalGrid s (fmap (f s) (listArray (bounds v) (elems psi)))
 
 {-| Given a physical grid with coordinates and spacing, creates a new physical grid with same coordinates and spacing but with 0 Density everywhere -}
 toZeroDensity :: PhysicalGrid a -> PhysicalGrid Density 
