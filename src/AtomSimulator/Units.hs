@@ -10,6 +10,7 @@ type Length = MkQu_D Nanometer
 declareDerivedUnit "MicroMeter" [t| Nanometer |] 1e3 (Just "um")
 declareDerivedUnit "Meter" [t| Nanometer |] 1e9 (Just "m")
 declareDerivedUnit "Bohr" [t| Nanometer |] 0.0529177249 (Just "m")
+declareDerivedUnit "InverseCubicNanometer" [t| Number :/ Nanometer :/ Nanometer :/ Nanometer |] 1 (Just "nm^-3")
 
 declareMonoUnit "ElectronVolt" (Just "eV")
 {-| Energy is a conserved property in physical systems. Particles can have different potential energies at
