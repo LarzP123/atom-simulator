@@ -1,15 +1,24 @@
 {-# LANGUAGE FlexibleContexts #-}
 import AtomSimulator.Units
 import AtomSimulator.QuantumSolver
+import AtomSimulator.OutputFormatter
 import Data.Metrology.Poly
 import Data.List (sortBy)
 import Data.Ord (comparing)
 import Text.Printf
+import Web.Browser
+import Control.Monad (void)
 
-{-| Currently this just returns output for a solution for a quantum well as a demonstration-}
+-- | Writes the electron solutions as json to a slimmed down .js file and opens a renderer for it.
+launchElectronViewer :: [WaveSolution] -> IO ()
+launchElectronViewer solutions = do
+  let electronsJSON = jsonArr (zipWith (electronToJSON InverseCubicNanometer) [0 ..] solutions)
+  writeFile "output.json.js" ("window.ELECTRONS = " ++ electronsJSON ++ ";")
+  void $ openBrowser "viewer.html"
+
 main :: IO ()
 main = do
-  let 
+  let
     k :: SpringConstant
     k = (0.25 % Hartree) |/| (1 % Bohr) |/| (1 % Bohr)
     grid = createPotentialGrid (harmonicPotential k) 12 (0.03 % Nanometer)
@@ -22,3 +31,6 @@ main = do
   let (systemEnergy, solutions) = solveInteractingElectronsHF 2 5 grid
   mapM_ (putStrLn . showWaveSolutionInUnit Hartree) solutions
   printf "Total: %.4f Hartree  (must be >= 2 Hartree -- variational bound)\n" (systemEnergy # Hartree)
+  
+  putStrLn "\nLaunching interactive electron viewer in browser..."
+  launchElectronViewer solutions
