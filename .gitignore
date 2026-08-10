@@ -2,3 +2,5 @@ dist-newstyle
 build.log
 cabal.project.local
 *.json.js
+*.mix
+*.tix

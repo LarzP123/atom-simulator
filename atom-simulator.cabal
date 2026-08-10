@@ -8,7 +8,8 @@ common shared-extensions
   default-extensions: Strict,
                        TemplateHaskell,
                        TypeFamilies
-  ghc-options:        -O2 -Wmissing-signatures -Wmissing-local-signatures
+  ghc-options:        -O2 -optc-w -Wmissing-signatures -Wmissing-local-signatures
+  cc-options:         -w
 
 library
   import:           shared-extensions
@@ -32,3 +33,15 @@ executable atom-simulator
                     units,
                     open-browser
   ghc-options:      -threaded -rtsopts "-with-rtsopts=-N"
+
+test-suite atom-simulator-tests
+  import:           shared-extensions
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          QuantumSolverTests.hs
+  build-depends:    base,
+                    atom-simulator,
+                    hspec,
+                    units,
+                    array
+  ghc-options:      -threaded -rtsopts "-with-rtsopts=-N" -fhpc

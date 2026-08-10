@@ -1,0 +1,306 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>module AtomSimulator.QuantumSolver where
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>import AtomSimulator.Units
+<span class="lineno">    4 </span>import AtomSimulator.MathHelper
+<span class="lineno">    5 </span>import Data.Array (Array, range)
+<span class="lineno">    6 </span>import Data.Array.IArray (listArray, elems, (!), IArray (bounds))
+<span class="lineno">    7 </span>import Data.Metrology.Poly
+<span class="lineno">    8 </span>import Data.List
+<span class="lineno">    9 </span>import Data.Ord
+<span class="lineno">   10 </span>import GHC.RTS.Flags (ProfFlags(ccsLength))
+<span class="lineno">   11 </span>import Data.Metrology.Show
+<span class="lineno">   12 </span>import Data.Function (on)
+<span class="lineno">   13 </span>import Text.Printf (printf)
+<span class="lineno">   14 </span>import Numeric.LinearAlgebra (Convert(double))
+<span class="lineno">   15 </span>import Control.Parallel.Strategies (parList, rseq, using)
+<span class="lineno">   16 </span>
+<span class="lineno">   17 </span>-- ===REGION Creating Potential Energy Grids
+<span class="lineno">   18 </span>-- | Creates a 3D potential energy grid from a function that says a given potential energy at a point in space
+<span class="lineno">   19 </span>createPotentialGrid :: (Length -&gt; Length -&gt; Length -&gt; Energy) -&gt; Int -&gt; Length -&gt; PhysicalGrid Energy
+<span class="lineno">   20 </span><span class="decl"><span class="istickedoff">createPotentialGrid = createGridFromFuncShifted</span></span>
+<span class="lineno">   21 </span>
+<span class="lineno">   22 </span>-- | Finds the harmonic potential at a position given a spring constant
+<span class="lineno">   23 </span>harmonicPotential :: SpringConstant -&gt; Length -&gt; Length -&gt; Length -&gt; Energy
+<span class="lineno">   24 </span><span class="decl"><span class="istickedoff">harmonicPotential = harmonicFunc</span></span>
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>-- | Finds the sine potential at a position given an amplitude an scaling factor
+<span class="lineno">   27 </span>sinePotential :: Energy -&gt; InverseLengthSq -&gt; Length -&gt; Length -&gt; Length -&gt; Energy
+<span class="lineno">   28 </span><span class="decl"><span class="istickedoff">sinePotential = sineFunc</span></span>
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>-- | A function to find the potential energy at a given point in a Gaussian well
+<span class="lineno">   31 </span>gaussianWellPotential :: Energy -&gt; Length -&gt; Length -&gt; Length -&gt; Length -&gt; Energy
+<span class="lineno">   32 </span><span class="decl"><span class="nottickedoff">gaussianWellPotential = gaussianWellFunc</span></span>
+<span class="lineno">   33 </span>
+<span class="lineno">   34 </span>{-| Inside of a sphere of a given radius, sets 0 potential energy and outside of
+<span class="lineno">   35 </span>that sets an inputted other potential energy-}
+<span class="lineno">   36 </span>sphericalWellPotential :: Energy -&gt; Length -&gt; Length -&gt; Length -&gt; Length -&gt; Energy
+<span class="lineno">   37 </span><span class="decl"><span class="istickedoff">sphericalWellPotential = sphericalWellFunc</span></span>
+<span class="lineno">   38 </span>
+<span class="lineno">   39 </span>-- | Given a position as input, returns 0 energy
+<span class="lineno">   40 </span>zeroPotential :: Length -&gt; Length -&gt; Length -&gt; Energy
+<span class="lineno">   41 </span><span class="decl"><span class="istickedoff">zeroPotential = zeroFunc</span></span>
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>-- | Given an electron density, this will find the potential energy for another electron to exist nearby
+<span class="lineno">   44 </span>coulombPotentialFromDensity :: Array Idx3 InverseLength -&gt; Charge -&gt; Charge -&gt; PhysicalGrid Density -&gt; PhysicalGrid Energy
+<span class="lineno">   45 </span><span class="decl"><span class="istickedoff">coulombPotentialFromDensity invTable q1 q2 (PhysicalGrid spacing grid) =</span>
+<span class="lineno">   46 </span><span class="spaces">  </span><span class="istickedoff">PhysicalGrid spacing (listArray (bounds grid) [ potentialAt p | p &lt;- allPoints ])</span>
+<span class="lineno">   47 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">allPoints = range (bounds grid)</span>
+<span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">amtOfParticleAtPoint :: Idx3 -&gt; Double</span>
+<span class="lineno">   50 </span><span class="spaces">    </span><span class="istickedoff">amtOfParticleAtPoint point = (grid ! point) |*| (spacing |*| spacing |*| spacing) # <span class="nottickedoff">Number</span></span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">amtCache :: Vec</span>
+<span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">amtCache = listArray (bounds grid) [ amtOfParticleAtPoint pt | pt &lt;- allPoints ]</span>
+<span class="lineno">   53 </span><span class="spaces">    </span><span class="istickedoff">sumInverseDists :: Idx3 -&gt; InverseLength</span>
+<span class="lineno">   54 </span><span class="spaces">    </span><span class="istickedoff">sumInverseDists p = foldl'</span>
+<span class="lineno">   55 </span><span class="spaces">      </span><span class="istickedoff">(\ acc q -&gt; if q == p then acc else acc |+| (amtCache ! q % <span class="nottickedoff">Number</span>) |*| invOffsetAt invTable p q)</span>
+<span class="lineno">   56 </span><span class="spaces">      </span><span class="istickedoff">((0 % <span class="nottickedoff">Number</span>) |/| (1 % <span class="nottickedoff">Nanometer</span>)) allPoints</span>
+<span class="lineno">   57 </span><span class="spaces">    </span><span class="istickedoff">relCoulombConst :: EnergyDist</span>
+<span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">relCoulombConst = q1 |*| q2 |/| (4 |*| pi |*| vacuumPermittivity)</span>
+<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">potentialAt :: Idx3 -&gt; Energy</span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">potentialAt p = relCoulombConst |*| sumInverseDists p</span></span>
+<span class="lineno">   61 </span>-- ===ENDREGION
+<span class="lineno">   62 </span>
+<span class="lineno">   63 </span>-- ===REGION Wave Solution Definitions
+<span class="lineno">   64 </span>-- | The solution for an electron cloud. This contains the eigen-energy of the particle, a probability density, and the spin of the particle if from a multi-particle solver
+<span class="lineno">   65 </span>newtype WaveSolution = WaveSolution (Energy, PhysicalGrid Density, Maybe Spin) deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="istickedoff">Eq</span></span></span></span>)
+<span class="lineno">   66 </span>{- | The wave function of an electron (psi). This contains the eigen-energy of the particle, a vector containning indexes and results of the
+<span class="lineno">   67 </span>wavefunction at various points in space, and the particles spin -}
+<span class="lineno">   68 </span>type WaveState = (Energy, Vec, Spin)
+<span class="lineno">   69 </span>
+<span class="lineno">   70 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show WaveSolution</span></span></span></span> where
+<span class="lineno">   71 </span>  show :: WaveSolution -&gt; String
+<span class="lineno">   72 </span>  <span class="decl"><span class="istickedoff">show = showWaveSolutionInUnit ElectronVolt</span></span>
+<span class="lineno">   73 </span>
+<span class="lineno">   74 </span>-- | Shows a wavesolution in Energy units specified
+<span class="lineno">   75 </span>showWaveSolutionInUnit :: forall dim lcsu unit. (Energy ~ Qu dim lcsu Double, ValidDLU dim lcsu unit, Show unit) =&gt; unit -&gt; WaveSolution -&gt; String
+<span class="lineno">   76 </span><span class="decl"><span class="istickedoff">showWaveSolutionInUnit unit (WaveSolution (e, _, spin)) = case spin of</span>
+<span class="lineno">   77 </span><span class="spaces">  </span><span class="istickedoff">Just s  -&gt; <span class="nottickedoff">show s ++ &quot; &quot; ++ printf &quot;%.4f %s&quot; (e # unit) (show unit)</span></span>
+<span class="lineno">   78 </span><span class="spaces">  </span><span class="istickedoff">Nothing -&gt; printf &quot;%.4f %s&quot; (e # <span class="nottickedoff">unit</span>) (show unit)</span></span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord WaveSolution</span></span></span></span></span></span></span></span></span></span></span></span> where
+<span class="lineno">   81 </span>  <span class="decl"><span class="istickedoff">compare = comparing (\(WaveSolution (e, _, _)) -&gt; e)</span></span>
+<span class="lineno">   82 </span>
+<span class="lineno">   83 </span>{-# INLINE waveToProb #-}
+<span class="lineno">   84 </span>-- | Given a wave function/result, convert it to a probabilty. (ie. psi -&gt; |psi|^2)
+<span class="lineno">   85 </span>waveToProb :: Length -&gt; Double -&gt; Density
+<span class="lineno">   86 </span><span class="decl"><span class="istickedoff">waveToProb s = (|/| (s |*| s |*| s)) . (% <span class="nottickedoff">Number</span>) . (^2)</span></span>
+<span class="lineno">   87 </span>-- ===ENDREGION
+<span class="lineno">   88 </span>
+<span class="lineno">   89 </span>-- ===REGION One State Solution Matrix Solving
+<span class="lineno">   90 </span>{- Given a potential energy 3D space, and any particle specific properties (like mass) this will return an energy
+<span class="lineno">   91 </span>matrix for solving for possible solutions to this system -}
+<span class="lineno">   92 </span>hamiltonianMatrix :: PhysicalGrid Energy -&gt; [[Energy]]
+<span class="lineno">   93 </span><span class="decl"><span class="istickedoff">hamiltonianMatrix (PhysicalGrid s v) = [ [ f p q | q &lt;- pts ] | p &lt;- pts ]</span>
+<span class="lineno">   94 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   95 </span><span class="spaces">    </span><span class="istickedoff">pts = range ((0,0,0), snd $ bounds v)</span>
+<span class="lineno">   96 </span><span class="spaces">    </span><span class="istickedoff">kineticCoeff = (0.0381 % <span class="nottickedoff">ElectronVolt</span>) |*| qSq (1 % <span class="nottickedoff">Nanometer</span>)</span>
+<span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">k :: Energy</span>
+<span class="lineno">   98 </span><span class="spaces">    </span><span class="istickedoff">k = kineticCoeff |/| qSq s</span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">f :: Idx3 -&gt; Idx3 -&gt; Energy</span>
+<span class="lineno">  100 </span><span class="spaces">    </span><span class="istickedoff">f p q</span>
+<span class="lineno">  101 </span><span class="spaces">      </span><span class="istickedoff">| p == q             = (6 |*| k) |+| (v ! p)</span>
+<span class="lineno">  102 </span><span class="spaces">      </span><span class="istickedoff">| manhattan p q == 1 = (-1) |*| k</span>
+<span class="lineno">  103 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span>          = 0 % <span class="nottickedoff">ElectronVolt</span></span></span>
+<span class="lineno">  104 </span>
+<span class="lineno">  105 </span>{- Given a grid saying the potential energy in the system, and any particle specific properties (like mass) this will
+<span class="lineno">  106 </span>solve for possible eigen energies the particle can hold and also for probability densities of the particle at that given
+<span class="lineno">  107 </span>energy (the eigen vectors) -}
+<span class="lineno">  108 </span>solveAllOrbitals :: PhysicalGrid Energy -&gt; [WaveSolution]
+<span class="lineno">  109 </span><span class="decl"><span class="istickedoff">solveAllOrbitals (PhysicalGrid s v) = sort (map WaveSolution (zip3 energies densityGrids (repeat <span class="nottickedoff">Nothing</span>)))</span>
+<span class="lineno">  110 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">(energies, waveFuncs) = solveMatrix ElectronVolt (hamiltonianMatrix (PhysicalGrid s v))</span>
+<span class="lineno">  112 </span><span class="spaces">    </span><span class="istickedoff">waveFuncGrids :: [Grid3D Double]</span>
+<span class="lineno">  113 </span><span class="spaces">    </span><span class="istickedoff">waveFuncGrids = map <span class="nottickedoff">(listArray (bounds v))</span> waveFuncs</span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">densitiesGrid3D :: [Grid3D Density]</span>
+<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">densitiesGrid3D = map <span class="nottickedoff">(fmap $ waveToProb s)</span> waveFuncGrids</span>
+<span class="lineno">  116 </span><span class="spaces">    </span><span class="istickedoff">densityGrids :: [PhysicalGrid Density]</span>
+<span class="lineno">  117 </span><span class="spaces">    </span><span class="istickedoff">densityGrids = map <span class="nottickedoff">(PhysicalGrid s)</span> densitiesGrid3D</span></span>
+<span class="lineno">  118 </span>-- ===ENDREGION
+<span class="lineno">  119 </span>
+<span class="lineno">  120 </span>-- ===REGION One State Solution Vector Solving
+<span class="lineno">  121 </span>-- | Computes the hamiltonian given a potential energy grid. This is done using vector storage.
+<span class="lineno">  122 </span>hamiltonianVector :: forall dim lcsu unit. (Energy ~ Qu dim lcsu Double, ValidDLU dim lcsu unit)
+<span class="lineno">  123 </span>  =&gt; unit -&gt; PhysicalGrid Energy -&gt; (Vec -&gt; Vec, unit)
+<span class="lineno">  124 </span><span class="decl"><span class="istickedoff">hamiltonianVector unit (PhysicalGrid s v) = (matvec, <span class="nottickedoff">unit</span>)</span>
+<span class="lineno">  125 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  126 </span><span class="spaces">    </span><span class="istickedoff">matvec :: Vec -&gt; Vec</span>
+<span class="lineno">  127 </span><span class="spaces">    </span><span class="istickedoff">matvec psi = listArray (bounds v)</span>
+<span class="lineno">  128 </span><span class="spaces">      </span><span class="istickedoff">[ (6 |*| k |*| (psi ! p % <span class="nottickedoff">Number</span>) |+| (v ! p |*| (psi ! p % <span class="nottickedoff">Number</span>)) |-| (k |*| (neighborSum psi p % <span class="nottickedoff">Number</span>))) # <span class="nottickedoff">unit</span></span>
+<span class="lineno">  129 </span><span class="spaces">      </span><span class="istickedoff">| p &lt;- range $ bounds v ]</span>
+<span class="lineno">  130 </span><span class="spaces">    </span><span class="istickedoff">kineticCoeff = (0.0381 % <span class="nottickedoff">ElectronVolt</span>) |*| qSq (1 % <span class="nottickedoff">Nanometer</span>)</span>
+<span class="lineno">  131 </span><span class="spaces">    </span><span class="istickedoff">k :: Energy</span>
+<span class="lineno">  132 </span><span class="spaces">    </span><span class="istickedoff">k = kineticCoeff |/| qSq s</span>
+<span class="lineno">  133 </span><span class="spaces">    </span><span class="istickedoff">neighborSum :: Vec -&gt; Idx3 -&gt; Double</span>
+<span class="lineno">  134 </span><span class="spaces">    </span><span class="istickedoff">neighborSum psi p = sum [ psi ! q | q &lt;- neighborsOf p (snd $ bounds v) ]</span></span>
+<span class="lineno">  135 </span>
+<span class="lineno">  136 </span>-- | Gets the lowest orbital solution in a 1 particle system using lanczos quick matrix calculations
+<span class="lineno">  137 </span>solveLowestOribtal :: PhysicalGrid Energy -&gt; WaveSolution
+<span class="lineno">  138 </span><span class="decl"><span class="istickedoff">solveLowestOribtal grid@(PhysicalGrid s v) = WaveSolution (energy, densityGrid, Nothing)</span>
+<span class="lineno">  139 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  140 </span><span class="spaces">    </span><span class="istickedoff">(energy, waveFunc) = lanczosLowest (hamiltonianVector ElectronVolt grid) (snd (bounds v))</span>
+<span class="lineno">  141 </span><span class="spaces">    </span><span class="istickedoff">waveFuncGrid  :: Grid3D Double</span>
+<span class="lineno">  142 </span><span class="spaces">    </span><span class="istickedoff">waveFuncGrid = listArray (bounds v) (elems waveFunc)</span>
+<span class="lineno">  143 </span><span class="spaces">    </span><span class="istickedoff">densityGrid3D :: Grid3D Density</span>
+<span class="lineno">  144 </span><span class="spaces">    </span><span class="istickedoff">densityGrid3D = fmap (waveToProb s) waveFuncGrid</span>
+<span class="lineno">  145 </span><span class="spaces">    </span><span class="istickedoff">densityGrid :: PhysicalGrid Density</span>
+<span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">densityGrid = PhysicalGrid s densityGrid3D</span></span>
+<span class="lineno">  147 </span>-- ===ENDREGION
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>-- ===REGION Orthogonality Forcing
+<span class="lineno">  150 </span>-- | Generates every combination of spin up/spin down unique assignments for a given number of electrons
+<span class="lineno">  151 </span>candidateSpinAssignments :: Int -&gt; [[Spin]]
+<span class="lineno">  152 </span><span class="decl"><span class="istickedoff">candidateSpinAssignments = binaryPartitions SpinUp SpinDown</span></span>
+<span class="lineno">  153 </span>
+<span class="lineno">  154 </span>-- | The bare one-electron energy &lt;psi|T+V_ext|psi&gt; — kinetic + external potential only
+<span class="lineno">  155 </span>oneElectronEnergy :: PhysicalGrid Energy -&gt; Vec -&gt; Energy
+<span class="lineno">  156 </span><span class="decl"><span class="istickedoff">oneElectronEnergy extPotential psi = (dotA psi (h0 psi) / dotA psi psi) % <span class="nottickedoff">ElectronVolt</span></span>
+<span class="lineno">  157 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  158 </span><span class="spaces">    </span><span class="istickedoff">h0 :: Vec -&gt; Vec</span>
+<span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">(h0, _) = hamiltonianVector ElectronVolt extPotential</span></span>
+<span class="lineno">  160 </span>
+<span class="lineno">  161 </span>-- | Correct total Hartree-Fock energy: E = 1/2 * sum(h_i + epsilon_i)
+<span class="lineno">  162 </span>totalEnergyHF :: PhysicalGrid Energy -&gt; [WaveState] -&gt; Energy
+<span class="lineno">  163 </span><span class="decl"><span class="istickedoff">totalEnergyHF extPotential states =</span>
+<span class="lineno">  164 </span><span class="spaces">  </span><span class="istickedoff">(0.5 % <span class="nottickedoff">Number</span>) |*| foldl1' (|+|)</span>
+<span class="lineno">  165 </span><span class="spaces">    </span><span class="istickedoff">[ h_i |+| epsilon_i | (epsilon_i, psi, _) &lt;- states, let h_i = oneElectronEnergy extPotential psi ]</span></span>
+<span class="lineno">  166 </span>-- ===ENDREGION
+<span class="lineno">  167 </span>
+<span class="lineno">  168 </span>-- ===REGION Hartree Fock
+<span class="lineno">  169 </span>{-| Hartree-Fock exchange contribution. Given the orbitals of electrons already placed into the
+<span class="lineno">  170 </span>system, this is what gets subtracted from the plain Hamiltonian's action on a trial wavefunction. -}
+<span class="lineno">  171 </span>exchangeTerm :: Array Idx3 InverseLength -&gt; Length -&gt; [Vec] -&gt; Vec -&gt; Vec
+<span class="lineno">  172 </span><span class="decl"><span class="istickedoff">exchangeTerm _ _ [] psi = zeroVec psi</span>
+<span class="lineno">  173 </span><span class="spaces"></span><span class="istickedoff">exchangeTerm invTable _ previousOrbitals psi = foldl1' <span class="nottickedoff">addA</span> (map contributionFrom previousOrbitals)</span>
+<span class="lineno">  174 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  175 </span><span class="spaces">    </span><span class="istickedoff">pts = range (bounds psi)</span>
+<span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">exchangeConst :: EnergyDist</span>
+<span class="lineno">  177 </span><span class="spaces">    </span><span class="istickedoff">exchangeConst = electronCharge |*| electronCharge |/| (4 |*| pi |*| vacuumPermittivity)</span>
+<span class="lineno">  178 </span><span class="spaces">    </span><span class="istickedoff">contributionFrom :: Vec -&gt; Vec</span>
+<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">contributionFrom phi = listArray (bounds psi)</span>
+<span class="lineno">  180 </span><span class="spaces">      </span><span class="istickedoff">[ (exchangeConst |*| overlapPotentialAt p |*| (phi ! p % <span class="nottickedoff">Number</span>)) # <span class="nottickedoff">ElectronVolt</span> | p &lt;- pts ]</span>
+<span class="lineno">  181 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  182 </span><span class="spaces">        </span><span class="istickedoff">overlapPotentialAt :: Idx3 -&gt; InverseLength</span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">overlapPotentialAt p = foldl'</span>
+<span class="lineno">  184 </span><span class="spaces">          </span><span class="istickedoff">(\ acc q -&gt; if q == p then acc else acc |+| ((phi ! q * psi ! q) % <span class="nottickedoff">Number</span>) |*| invOffsetAt invTable p q)</span>
+<span class="lineno">  185 </span><span class="spaces">          </span><span class="istickedoff">((0 % <span class="nottickedoff">Number</span>) |/| (1 % <span class="nottickedoff">Nanometer</span>)) pts</span></span>
+<span class="lineno">  186 </span>
+<span class="lineno">  187 </span>{- | Builds a matrix-vector operator representing the Fock operator acting on a test wavefunction, by taking the
+<span class="lineno">  188 </span>plain single-particle Hamiltonian (kinetic + external potential) and subtracting the Hartree-Fock exchange contribution. -}
+<span class="lineno">  189 </span>hamiltonianVectorHF :: forall dim lcsu unit. (Energy ~ Qu dim lcsu Double, ValidDLU dim lcsu unit)
+<span class="lineno">  190 </span>  =&gt; Array Idx3 InverseLength -&gt; unit -&gt; PhysicalGrid Energy -&gt; [Vec] -&gt; (Vec -&gt; Vec, unit)
+<span class="lineno">  191 </span><span class="decl"><span class="istickedoff">hamiltonianVectorHF invTable unit grid previousOrbitals =</span>
+<span class="lineno">  192 </span><span class="spaces">  </span><span class="istickedoff">let</span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">localMatvec :: Vec -&gt; Vec</span>
+<span class="lineno">  194 </span><span class="spaces">    </span><span class="istickedoff">(localMatvec, _) = hamiltonianVector unit grid</span>
+<span class="lineno">  195 </span><span class="spaces">    </span><span class="istickedoff">fockMatvec :: Vec -&gt; Vec</span>
+<span class="lineno">  196 </span><span class="spaces">    </span><span class="istickedoff">fockMatvec psi = localMatvec psi `subA` exchangeTerm invTable (spacing grid) previousOrbitals psi</span>
+<span class="lineno">  197 </span><span class="spaces">  </span><span class="istickedoff">in (fockMatvec, <span class="nottickedoff">unit</span>)</span></span>
+<span class="lineno">  198 </span>
+<span class="lineno">  199 </span>-- | An pass on adjusting and finding new states when solving for a self consitent field of multiple electrons
+<span class="lineno">  200 </span>scfPass :: Array Idx3 InverseLength -&gt; [WaveState] -&gt; PhysicalGrid Energy -&gt; [WaveState]
+<span class="lineno">  201 </span><span class="decl"><span class="istickedoff">scfPass invTable states extPotential = map resolve [0 .. length states - 1]</span>
+<span class="lineno">  202 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  203 </span><span class="spaces">    </span><span class="istickedoff">othersDensity :: Int -&gt; PhysicalGrid Density</span>
+<span class="lineno">  204 </span><span class="spaces">    </span><span class="istickedoff">othersDensity i = case [ mapVecToGrid extPotential psi waveToProb | (j, (_, psi, _)) &lt;- zip [0 ..] states, j /= i ] of</span>
+<span class="lineno">  205 </span><span class="spaces">      </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">toZeroDensity extPotential</span></span>
+<span class="lineno">  206 </span><span class="spaces">      </span><span class="istickedoff">densities -&gt; foldl1' <span class="nottickedoff">addGrids</span> densities</span>
+<span class="lineno">  207 </span><span class="spaces">    </span><span class="istickedoff">sameSpinOthers :: Int -&gt; Spin -&gt; [Vec]</span>
+<span class="lineno">  208 </span><span class="spaces">    </span><span class="istickedoff">sameSpinOthers i mySpin =</span>
+<span class="lineno">  209 </span><span class="spaces">      </span><span class="istickedoff">[ psi | (j, (_, psi, sp)) &lt;- zip [0 ..] states, j /= i, sp == mySpin ]</span>
+<span class="lineno">  210 </span><span class="spaces">    </span><span class="istickedoff">resolve :: Int -&gt; WaveState</span>
+<span class="lineno">  211 </span><span class="spaces">    </span><span class="istickedoff">resolve i =</span>
+<span class="lineno">  212 </span><span class="spaces">      </span><span class="istickedoff">let</span>
+<span class="lineno">  213 </span><span class="spaces">        </span><span class="istickedoff">mySpin :: Spin</span>
+<span class="lineno">  214 </span><span class="spaces">        </span><span class="istickedoff">(_, _, mySpin) = states !! i</span>
+<span class="lineno">  215 </span><span class="spaces">        </span><span class="istickedoff">repulsion :: PhysicalGrid Energy</span>
+<span class="lineno">  216 </span><span class="spaces">        </span><span class="istickedoff">repulsion = coulombPotentialFromDensity invTable electronCharge electronCharge (othersDensity i)</span>
+<span class="lineno">  217 </span><span class="spaces">        </span><span class="istickedoff">effectivePotential :: PhysicalGrid Energy</span>
+<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">effectivePotential = addGrids extPotential repulsion</span>
+<span class="lineno">  219 </span><span class="spaces">        </span><span class="istickedoff">occupied :: [Vec]</span>
+<span class="lineno">  220 </span><span class="spaces">        </span><span class="istickedoff">occupied = sameSpinOthers i mySpin</span>
+<span class="lineno">  221 </span><span class="spaces">        </span><span class="istickedoff">energy :: Energy</span>
+<span class="lineno">  222 </span><span class="spaces">        </span><span class="istickedoff">waveFunc :: Vec</span>
+<span class="lineno">  223 </span><span class="spaces">        </span><span class="istickedoff">(energy, waveFunc) = lanczosLowestExcluding occupied</span>
+<span class="lineno">  224 </span><span class="spaces">          </span><span class="istickedoff">(hamiltonianVectorHF invTable ElectronVolt effectivePotential occupied) (bndGrid extPotential)</span>
+<span class="lineno">  225 </span><span class="spaces">      </span><span class="istickedoff">in (energy, waveFunc, mySpin)</span></span>
+<span class="lineno">  226 </span>
+<span class="lineno">  227 </span>-- | An initial first greedy pass when doing a self-consitent field setup.
+<span class="lineno">  228 </span>greedyPass :: Array Idx3 InverseLength -&gt; [Spin] -&gt; PhysicalGrid Density -&gt; [(Vec, Spin)] -&gt; PhysicalGrid Energy -&gt; [WaveState]
+<span class="lineno">  229 </span><span class="decl"><span class="istickedoff">greedyPass _ [] _ _ _ = []</span>
+<span class="lineno">  230 </span><span class="spaces"></span><span class="istickedoff">greedyPass invTable (mySpin : restSpins) cumulativeDensity previousElectrons extPotential =</span>
+<span class="lineno">  231 </span><span class="spaces">  </span><span class="istickedoff">let </span>
+<span class="lineno">  232 </span><span class="spaces">    </span><span class="istickedoff">repulsion :: PhysicalGrid Energy</span>
+<span class="lineno">  233 </span><span class="spaces">    </span><span class="istickedoff">repulsion = coulombPotentialFromDensity invTable electronCharge electronCharge cumulativeDensity</span>
+<span class="lineno">  234 </span><span class="spaces">    </span><span class="istickedoff">effectivePotential :: PhysicalGrid Energy</span>
+<span class="lineno">  235 </span><span class="spaces">    </span><span class="istickedoff">effectivePotential = addGrids extPotential repulsion</span>
+<span class="lineno">  236 </span><span class="spaces">    </span><span class="istickedoff">sameSpinPrevious :: [Vec]</span>
+<span class="lineno">  237 </span><span class="spaces">    </span><span class="istickedoff">sameSpinPrevious = [ psi | (psi, sp) &lt;- previousElectrons, sp == mySpin ]</span>
+<span class="lineno">  238 </span><span class="spaces">    </span><span class="istickedoff">energy :: Energy</span>
+<span class="lineno">  239 </span><span class="spaces">    </span><span class="istickedoff">waveFunc :: Vec</span>
+<span class="lineno">  240 </span><span class="spaces">    </span><span class="istickedoff">(energy, waveFunc)  = lanczosLowestExcluding sameSpinPrevious</span>
+<span class="lineno">  241 </span><span class="spaces">      </span><span class="istickedoff">(hamiltonianVectorHF invTable  ElectronVolt effectivePotential sameSpinPrevious) (bndGrid extPotential)</span>
+<span class="lineno">  242 </span><span class="spaces">    </span><span class="istickedoff">newCumulativeDensity :: PhysicalGrid Density</span>
+<span class="lineno">  243 </span><span class="spaces">    </span><span class="istickedoff">newCumulativeDensity = addGrids cumulativeDensity (mapVecToGrid extPotential waveFunc waveToProb)</span>
+<span class="lineno">  244 </span><span class="spaces">  </span><span class="istickedoff">in (energy, waveFunc, mySpin) : greedyPass invTable restSpins newCumulativeDensity (previousElectrons ++ [(waveFunc, mySpin)]) extPotential</span></span>
+<span class="lineno">  245 </span>
+<span class="lineno">  246 </span>-- | Does a self consistent field calculation of repeated electron orbital position checking and potential energy generating on repeat
+<span class="lineno">  247 </span>runSCF :: Array Idx3 InverseLength -&gt; Int -&gt; PhysicalGrid Energy -&gt; [Spin] -&gt; [WaveState]
+<span class="lineno">  248 </span><span class="decl"><span class="istickedoff">runSCF invTable maxIterations extPotential spins = iterateSCF 0 initialStates</span>
+<span class="lineno">  249 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  250 </span><span class="spaces">    </span><span class="istickedoff">initialStates :: [WaveState]</span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">initialStates = greedyPass invTable spins (toZeroDensity extPotential) [] extPotential</span>
+<span class="lineno">  252 </span><span class="spaces">    </span><span class="istickedoff">converged :: [WaveState] -&gt; [WaveState] -&gt; Bool</span>
+<span class="lineno">  253 </span><span class="spaces">    </span><span class="istickedoff">converged old new = all (&lt; 1.0e-6) (zipWith energyDiff old new)</span>
+<span class="lineno">  254 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  255 </span><span class="spaces">        </span><span class="istickedoff">energyDiff :: WaveState -&gt; WaveState -&gt; Double</span>
+<span class="lineno">  256 </span><span class="spaces">        </span><span class="istickedoff">energyDiff (e1, _, _) (e2, _, _) = abs ((e1 |-| e2) # <span class="nottickedoff">ElectronVolt</span>)</span>
+<span class="lineno">  257 </span><span class="spaces">    </span><span class="istickedoff">iterateSCF :: Int -&gt; [WaveState] -&gt; [WaveState]</span>
+<span class="lineno">  258 </span><span class="spaces">    </span><span class="istickedoff">iterateSCF itersDone states</span>
+<span class="lineno">  259 </span><span class="spaces">      </span><span class="istickedoff">| itersDone &gt;= maxIterations = states</span>
+<span class="lineno">  260 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">converged states next</span>      = <span class="nottickedoff">next</span></span>
+<span class="lineno">  261 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span>                  = iterateSCF (itersDone + 1) next</span>
+<span class="lineno">  262 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  263 </span><span class="spaces">        </span><span class="istickedoff">next :: [WaveState]</span>
+<span class="lineno">  264 </span><span class="spaces">        </span><span class="istickedoff">next = scfPass invTable states extPotential</span></span>
+<span class="lineno">  265 </span>
+<span class="lineno">  266 </span>-- | Finds hartree fock solutions for total energy and electron orbital solutions given a number of electrons, a max iteration, and a starting external potential
+<span class="lineno">  267 </span>solveInteractingElectronsHF :: Int -&gt; Int -&gt; PhysicalGrid Energy -&gt; (Energy, [WaveSolution])
+<span class="lineno">  268 </span><span class="decl"><span class="istickedoff">solveInteractingElectronsHF numElectrons maxIterations extPotential =</span>
+<span class="lineno">  269 </span><span class="spaces">  </span><span class="istickedoff">(totalEnergyHF extPotential bestStates, toSpinOrbitals bestStates)</span>
+<span class="lineno">  270 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  271 </span><span class="spaces">    </span><span class="istickedoff">n :: Int</span>
+<span class="lineno">  272 </span><span class="spaces">    </span><span class="istickedoff">n = let (_, (iMax,_,_)) = bounds (samples extPotential) in iMax + 1</span>
+<span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">invTable :: Array Idx3 InverseLength</span>
+<span class="lineno">  274 </span><span class="spaces">    </span><span class="istickedoff">invTable = invOffsetTable n (spacing extPotential)</span>
+<span class="lineno">  275 </span><span class="spaces">    </span><span class="istickedoff">candidates :: [[WaveState]]</span>
+<span class="lineno">  276 </span><span class="spaces">    </span><span class="istickedoff">candidates = map (runSCF invTable maxIterations extPotential) (candidateSpinAssignments numElectrons) `using` parList rseq</span>
+<span class="lineno">  277 </span><span class="spaces">    </span><span class="istickedoff">bestStates :: [WaveState]</span>
+<span class="lineno">  278 </span><span class="spaces">    </span><span class="istickedoff">bestStates = minimumBy (comparing scoreOf) candidates</span>
+<span class="lineno">  279 </span><span class="spaces">    </span><span class="istickedoff">scoreOf :: [WaveState] -&gt; Double</span>
+<span class="lineno">  280 </span><span class="spaces">    </span><span class="istickedoff">scoreOf states = sum [ e # <span class="nottickedoff">ElectronVolt</span> | (e, _, _) &lt;- states ]</span>
+<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff">toSpinOrbitals :: [WaveState] -&gt; [WaveSolution]</span>
+<span class="lineno">  282 </span><span class="spaces">    </span><span class="istickedoff">toSpinOrbitals states = [ WaveSolution (energy, <span class="nottickedoff">mapVecToGrid extPotential psi waveToProb</span>, Just sp) | (energy, psi, sp) &lt;- states ]</span></span>
+<span class="lineno">  283 </span>-- ===ENDREGION
+
+</pre>
+</body>
+</html>
