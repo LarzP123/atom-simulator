@@ -1,0 +1,131 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>module AtomSimulator.Units where
+<span class="lineno">    2 </span>import Data.Metrology
+<span class="lineno">    3 </span>import Data.Metrology.TH
+<span class="lineno">    4 </span>import Data.Metrology.Show ()
+<span class="lineno">    5 </span>import Data.Array.IArray
+<span class="lineno">    6 </span>
+<span class="lineno">    7 </span>-- ===REGION Base Units
+<span class="lineno">    8 </span><span class="nottickedoff">declareMonoUnit &quot;Nanometer&quot; (Just &quot;nm&quot;)</span>
+<span class="lineno">    9 </span>-- | Length is a physical dimension that quantifies the space between points
+<span class="lineno">   10 </span>type Length = MkQu_D Nanometer
+<span class="lineno">   11 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;MicroMeter&quot; [t| Nanometer |] 1e3 (Just &quot;um&quot;)</span></span>
+<span class="lineno">   12 </span><span class="nottickedoff">declareDerivedUnit &quot;Meter&quot; [t| Nanometer |] 1e9 (Just &quot;m&quot;)</span>
+<span class="lineno">   13 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;Bohr&quot; [t| Nanometer |] 0.0529177249 (Just &quot;m&quot;)</span></span>
+<span class="lineno">   14 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;InverseCubicNanometer&quot; [t| Number :/ Nanometer :/ Nanometer :/ Nanometer |] 1 (Just &quot;nm^-3&quot;)</span></span>
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span><span class="istickedoff">declareMonoUnit &quot;ElectronVolt&quot; (Just &quot;eV&quot;)</span>
+<span class="lineno">   17 </span>{-| Energy is a conserved property in physical systems. Particles can have different potential energies at
+<span class="lineno">   18 </span>different points in space and the energy that a particle in a system have can be quantized.-}
+<span class="lineno">   19 </span>type Energy = MkQu_D ElectronVolt
+<span class="lineno">   20 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;Joule&quot; [t| ElectronVolt |] 6.241509074e18 (Just &quot;J&quot;)</span></span>
+<span class="lineno">   21 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;MegaElectronVolt&quot; [t| ElectronVolt |] 1e6 (Just &quot;MeV&quot;)</span></span>
+<span class="lineno">   22 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;Hartree&quot; [t| ElectronVolt |] 27.2114 (Just &quot;E h&quot;)</span></span>
+<span class="lineno">   23 </span>
+<span class="lineno">   24 </span><span class="nottickedoff">declareMonoUnit &quot;AtomicUnit&quot; (Just &quot;Au&quot;)</span>
+<span class="lineno">   25 </span>-- | Mass is a property of particles that decreases the wavelength of particles
+<span class="lineno">   26 </span>type Mass = MkQu_D AtomicUnit
+<span class="lineno">   27 </span><span class="nottickedoff"><span class="istickedoff">declareDerivedUnit &quot;Kilogram&quot; [t| AtomicUnit |] 6.02214076e26 (Just &quot;kg&quot;)</span></span>
+<span class="lineno">   28 </span>
+<span class="lineno">   29 </span><span class="nottickedoff">declareMonoUnit &quot;ElementaryCharge&quot; (Just &quot;e&quot;)</span>
+<span class="lineno">   30 </span>-- | Charge is a property of particles that attracts particles with opposite sign charge and repels ones with same sign charge
+<span class="lineno">   31 </span>type Charge = MkQu_D ElementaryCharge
+<span class="lineno">   32 </span>
+<span class="lineno">   33 </span>-- | Spin is an intrinsic form of angular momentum carried by particles. There are 2 orthogonal states of spin for spin 1/2 spin particles
+<span class="lineno">   34 </span>data Spin = SpinUp | SpinDown deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">   35 </span>
+<span class="lineno">   36 </span>-- | Turns spin up to spin down and vice versa
+<span class="lineno">   37 </span>flipSpin :: Maybe Spin -&gt; Maybe Spin
+<span class="lineno">   38 </span><span class="decl"><span class="istickedoff">flipSpin Nothing = <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">   39 </span><span class="spaces"></span><span class="istickedoff">flipSpin (Just SpinUp) = Just SpinDown</span>
+<span class="lineno">   40 </span><span class="spaces"></span><span class="istickedoff">flipSpin (Just SpinDown) = Just SpinUp</span></span>
+<span class="lineno">   41 </span>-- ===ENDREGION
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>-- ===REGION Derived Unit Types
+<span class="lineno">   44 </span>-- | Density is the amount of something in a given volume of 3D space.
+<span class="lineno">   45 </span>type Density  = Length %^ MThree
+<span class="lineno">   46 </span>{-| Speed Squared is an abstract concept that represents the amount of distance covered by an object in a certain
+<span class="lineno">   47 </span>amount of time... squared -}
+<span class="lineno">   48 </span>type SpeedSq = MkQu_D (ElectronVolt :/ AtomicUnit)
+<span class="lineno">   49 </span>-- | Measure of electric polarizability of a dielectric material
+<span class="lineno">   50 </span>type Permittivity = MkQu_D (ElementaryCharge :* ElementaryCharge :/ ElectronVolt :/ Nanometer)
+<span class="lineno">   51 </span>-- | Energy times distance
+<span class="lineno">   52 </span>type EnergyDist = MkQu_D (ElectronVolt :* Nanometer)
+<span class="lineno">   53 </span>-- | Energy times time, squared
+<span class="lineno">   54 </span>type EnergyTimeSq = MkQu_D (ElectronVolt :* Nanometer :* Nanometer :* AtomicUnit)
+<span class="lineno">   55 </span>-- | Length to negative one power
+<span class="lineno">   56 </span>type InverseLength = Length %^ MOne
+<span class="lineno">   57 </span>-- | Length to the negative two power
+<span class="lineno">   58 </span>type InverseLengthSq = Length %^ MTwo
+<span class="lineno">   59 </span>-- | This is a constant for the slope of a force that scales linearly with distance. Like the force on a spring
+<span class="lineno">   60 </span>type SpringConstant = MkQu_D (ElectronVolt :/ Nanometer :/ Nanometer)
+<span class="lineno">   61 </span>-- | A distance times a distances, or an area
+<span class="lineno">   62 </span>type DistSq = MkQu_D (Nanometer :* Nanometer)
+<span class="lineno">   63 </span>-- ===ENDREGION
+<span class="lineno">   64 </span>
+<span class="lineno">   65 </span>-- ===REGION Physical Constants
+<span class="lineno">   66 </span>-- | Light travels a constant amount of distance in a given amount of time
+<span class="lineno">   67 </span>lightSpeedSq :: SpeedSq
+<span class="lineno">   68 </span><span class="decl"><span class="istickedoff">lightSpeedSq = (2.99792458*10^8)^2 |*| (1 % Joule) |/| (1 % Kilogram)</span></span>
+<span class="lineno">   69 </span>
+<span class="lineno">   70 </span>-- | This is the mass of an electron particle at rest. 
+<span class="lineno">   71 </span>electronMass :: Mass
+<span class="lineno">   72 </span><span class="decl"><span class="istickedoff">electronMass = (0.510998 % MegaElectronVolt) |/| lightSpeedSq</span></span>
+<span class="lineno">   73 </span>-- | This is the mass of a proton particle at rest. 
+<span class="lineno">   74 </span>protonMass :: Mass
+<span class="lineno">   75 </span><span class="decl"><span class="nottickedoff">protonMass = (938.272 % MegaElectronVolt) |/| lightSpeedSq</span></span>
+<span class="lineno">   76 </span>-- | Permittivity of free space
+<span class="lineno">   77 </span>vacuumPermittivity :: Permittivity
+<span class="lineno">   78 </span><span class="decl"><span class="istickedoff">vacuumPermittivity = (55.26349406 % <span class="nottickedoff">ElementaryCharge</span>) |*| (1 % <span class="nottickedoff">ElementaryCharge</span>) |/| (1 % <span class="nottickedoff">ElectronVolt</span>) |/| (1 % MicroMeter)</span></span>
+<span class="lineno">   79 </span>-- ===ENDREGION
+<span class="lineno">   80 </span>
+<span class="lineno">   81 </span>-- | The charge of an electron
+<span class="lineno">   82 </span>electronCharge :: Charge
+<span class="lineno">   83 </span><span class="decl"><span class="istickedoff">electronCharge = (-1) % <span class="nottickedoff">ElementaryCharge</span></span></span>
+<span class="lineno">   84 </span>-- | The charge of a proton
+<span class="lineno">   85 </span>protonCharge :: Charge
+<span class="lineno">   86 </span><span class="decl"><span class="nottickedoff">protonCharge = 1 % ElementaryCharge</span></span>
+<span class="lineno">   87 </span>
+<span class="lineno">   88 </span>{-| An array represnting a 3D space. Each point contains a 3D coordinate identifier for its corresponding space on
+<span class="lineno">   89 </span>the grid and a value contained at that point -} 
+<span class="lineno">   90 </span>type Grid3D a = Array (Int,Int,Int) a
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>{-| A grid representing physical space. Contains a length saying the spacing between each item in the grid.
+<span class="lineno">   93 </span>Also contains a 3d grid/triple array containing all of the points in the grid with arbitrary units.-}
+<span class="lineno">   94 </span>data PhysicalGrid a = PhysicalGrid { <span class="istickedoff"><span class="decl"><span class="istickedoff">spacing</span></span></span> :: Length, <span class="istickedoff"><span class="decl"><span class="istickedoff">samples</span></span></span> :: Grid3D a } deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>)
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>-- | Planck's constant (h) times speed of light
+<span class="lineno">   97 </span>hc :: EnergyDist  
+<span class="lineno">   98 </span><span class="decl"><span class="istickedoff">hc = 1239.841984 % <span class="nottickedoff">(ElectronVolt :* Nanometer)</span></span></span>
+<span class="lineno">   99 </span>
+<span class="lineno">  100 </span>-- | Plank constant squared
+<span class="lineno">  101 </span>h2 :: EnergyTimeSq
+<span class="lineno">  102 </span><span class="decl"><span class="istickedoff">h2 = hc |*| hc |/| lightSpeedSq</span></span>
+<span class="lineno">  103 </span>
+<span class="lineno">  104 </span>-- | Plank constant squared
+<span class="lineno">  105 </span>hbar2 :: EnergyTimeSq
+<span class="lineno">  106 </span><span class="decl"><span class="istickedoff">hbar2 = h2 |/| (2 * pi)^2</span></span>
+<span class="lineno">  107 </span>
+<span class="lineno">  108 </span>
+
+</pre>
+</body>
+</html>

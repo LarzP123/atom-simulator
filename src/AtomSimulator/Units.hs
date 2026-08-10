@@ -2,6 +2,7 @@ module AtomSimulator.Units where
 import Data.Metrology
 import Data.Metrology.TH
 import Data.Metrology.Show ()
+import Data.Array.IArray
 
 -- ===REGION Base Units
 declareMonoUnit "Nanometer" (Just "nm")
@@ -31,6 +32,12 @@ type Charge = MkQu_D ElementaryCharge
 
 -- | Spin is an intrinsic form of angular momentum carried by particles. There are 2 orthogonal states of spin for spin 1/2 spin particles
 data Spin = SpinUp | SpinDown deriving (Eq, Show)
+
+-- | Turns spin up to spin down and vice versa
+flipSpin :: Maybe Spin -> Maybe Spin
+flipSpin Nothing = Nothing
+flipSpin (Just SpinUp) = Just SpinDown
+flipSpin (Just SpinDown) = Just SpinUp
 -- ===ENDREGION
 
 -- ===REGION Derived Unit Types
@@ -43,8 +50,12 @@ type SpeedSq = MkQu_D (ElectronVolt :/ AtomicUnit)
 type Permittivity = MkQu_D (ElementaryCharge :* ElementaryCharge :/ ElectronVolt :/ Nanometer)
 -- | Energy times distance
 type EnergyDist = MkQu_D (ElectronVolt :* Nanometer)
+-- | Energy times time, squared
+type EnergyTimeSq = MkQu_D (ElectronVolt :* Nanometer :* Nanometer :* AtomicUnit)
 -- | Length to negative one power
 type InverseLength = Length %^ MOne
+-- | Length to the negative two power
+type InverseLengthSq = Length %^ MTwo
 -- | This is a constant for the slope of a force that scales linearly with distance. Like the force on a spring
 type SpringConstant = MkQu_D (ElectronVolt :/ Nanometer :/ Nanometer)
 -- | A distance times a distances, or an area
@@ -73,3 +84,25 @@ electronCharge = (-1) % ElementaryCharge
 -- | The charge of a proton
 protonCharge :: Charge
 protonCharge = 1 % ElementaryCharge
+
+{-| An array represnting a 3D space. Each point contains a 3D coordinate identifier for its corresponding space on
+the grid and a value contained at that point -} 
+type Grid3D a = Array (Int,Int,Int) a
+
+{-| A grid representing physical space. Contains a length saying the spacing between each item in the grid.
+Also contains a 3d grid/triple array containing all of the points in the grid with arbitrary units.-}
+data PhysicalGrid a = PhysicalGrid { spacing :: Length, samples :: Grid3D a } deriving (Show, Eq)
+
+-- | Planck's constant (h) times speed of light
+hc :: EnergyDist  
+hc = 1239.841984 % (ElectronVolt :* Nanometer)
+
+-- | Plank constant squared
+h2 :: EnergyTimeSq
+h2 = hc |*| hc |/| lightSpeedSq
+
+-- | Plank constant squared
+hbar2 :: EnergyTimeSq
+hbar2 = h2 |/| (2 * pi)^2
+
+

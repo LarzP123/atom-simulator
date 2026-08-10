@@ -40,20 +40,12 @@ neighborsOf (i, j, k) (iMax, jMax, kMax) = concat
 -- ===ENDREGION 
 
 -- ===REGION Physical Grids
-{-| An array represnting a 3D space. Each point contains a 3D coordinate identifier for its corresponding space on
-the grid and a value contained at that point -} 
-type Grid3D a = Array Idx3 a
-
-{-| A grid representing physical space. Contains a length saying the spacing between each item in the grid.
-Also contains a 3d grid/triple array containing all of the points in the grid with arbitrary units.-}
-data PhysicalGrid a = PhysicalGrid { spacing :: Length, samples :: Grid3D a } deriving (Show, Eq)
-
 -- | Like createGridFromFunc but takes a 0 centered function and makes it centered at middle of grid we are creating
 createGridFromFuncShifted :: forall a. (Length -> Length -> Length -> a) -> Int -> Length -> PhysicalGrid a
 createGridFromFuncShifted f n s = createGridFromFunc shifted n s
   where
     offset :: Length
-    offset = (fromIntegral n / 2) |*| s
+    offset = (fromIntegral (n-1) / 2) |*| s
     shifted :: Length -> Length -> Length -> a
     shifted x y z = f (x |-| offset) (y |-| offset) (z |-| offset)
 
@@ -268,6 +260,49 @@ harmonicFunc springConstant x y z =
     r2 :: DistSq
     r2 = (x |*| x) |+| (y |*| y) |+| (z |*| z)
   in 0.5 |*| springConstant |*| r2
+
+-- | A function to find the potential energy at a given point in a sinusoidal system
+sineFunc :: Energy -> InverseLengthSq -> Length -> Length -> Length -> Energy
+sineFunc amplitude k x y z =
+  let
+    r2 :: DistSq
+    r2 = (x |*| x) |+| (y |*| y) |+| (z |*| z)
+  in
+    amplitude |*| sin (k |*| r2)
+
+-- | A function to find the potential energy at a given point in a Gaussian well
+gaussianWellFunc :: Energy -> Length -> Length -> Length -> Length -> Energy
+gaussianWellFunc depth sigma x y z =
+    let
+        r2 :: DistSq
+        r2 = (x |*| x) |+| (y |*| y) |+| (z |*| z)
+    in (-1) |*| depth |*| exp (-(r2 |/| (sigma |*| sigma)))
+
+-- | A function to find the potential energy inside a finite cubic well
+finiteCubicWellFunc :: Energy -> Length -> Length -> Length -> Length-> Energy
+finiteCubicWellFunc depth halfWidth x y z =
+    if x <= halfWidth && x >= (-1) |*| halfWidth &&
+       y <= halfWidth && y >= (-1) |*| halfWidth &&
+       z <= halfWidth && z >= (-1) |*| halfWidth
+    then 0 % ElectronVolt
+    else depth
+
+{-| Inside of a sphere of a given radius, sets 0 potential energy and outside of
+that sets an inputted other potential energy-}
+sphericalWellFunc :: Energy -> Length -> Length -> Length -> Length-> Energy
+sphericalWellFunc depth radius x y z =
+  if pointDistSq < radSq
+  then 0 % ElectronVolt
+  else depth
+  where
+    pointDistSq :: DistSq
+    pointDistSq = (x |*| x) |+| (y |*| y) |+| (z |*| z)
+    radSq :: DistSq
+    radSq = radius |*| radius
+
+-- | Given a position as input, returns 0 energy
+zeroFunc :: Length -> Length -> Length -> Energy
+zeroFunc _ _ _ = 0 % ElectronVolt
 
 -- | Given two category labels and a count, generate every way to split that many items avoiding mirror-image duplicates
 binaryPartitions :: a -> a -> Int -> [[a]]

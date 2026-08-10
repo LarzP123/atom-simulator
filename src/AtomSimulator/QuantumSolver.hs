@@ -23,6 +23,23 @@ createPotentialGrid = createGridFromFuncShifted
 harmonicPotential :: SpringConstant -> Length -> Length -> Length -> Energy
 harmonicPotential = harmonicFunc
 
+-- | Finds the sine potential at a position given an amplitude an scaling factor
+sinePotential :: Energy -> InverseLengthSq -> Length -> Length -> Length -> Energy
+sinePotential = sineFunc
+
+-- | A function to find the potential energy at a given point in a Gaussian well
+gaussianWellPotential :: Energy -> Length -> Length -> Length -> Length -> Energy
+gaussianWellPotential = gaussianWellFunc
+
+{-| Inside of a sphere of a given radius, sets 0 potential energy and outside of
+that sets an inputted other potential energy-}
+sphericalWellPotential :: Energy -> Length -> Length -> Length -> Length -> Energy
+sphericalWellPotential = sphericalWellFunc
+
+-- | Given a position as input, returns 0 energy
+zeroPotential :: Length -> Length -> Length -> Energy
+zeroPotential = zeroFunc
+
 -- | Given an electron density, this will find the potential energy for another electron to exist nearby
 coulombPotentialFromDensity :: Array Idx3 InverseLength -> Charge -> Charge -> PhysicalGrid Density -> PhysicalGrid Energy
 coulombPotentialFromDensity invTable q1 q2 (PhysicalGrid spacing grid) =
@@ -52,9 +69,7 @@ type WaveState = (Energy, Vec, Spin)
 
 instance Show WaveSolution where
   show :: WaveSolution -> String
-  show (WaveSolution (e, _, spin)) = case spin of
-    Just s  -> show s ++ " " ++ show e
-    Nothing -> show e
+  show = showWaveSolutionInUnit ElectronVolt
 
 -- | Shows a wavesolution in Energy units specified
 showWaveSolutionInUnit :: forall dim lcsu unit. (Energy ~ Qu dim lcsu Double, ValidDLU dim lcsu unit, Show unit) => unit -> WaveSolution -> String
